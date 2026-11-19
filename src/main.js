@@ -2,7 +2,31 @@ import './style.css';
 import { createClient } from '@supabase/supabase-js';
 import { parseEntry, isoDay, addDays, fromIso } from './parse.js';
 
-const sb = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY, {
+const SB_URL = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+const SB_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+
+// Se algo der errado, mostra o erro na tela em vez de uma página em branco.
+function fatal(title, detail) {
+  const box = document.createElement('div');
+  box.className = 'fatal';
+  const h = document.createElement('h1'); h.textContent = title;
+  const p = document.createElement('pre'); p.textContent = detail;
+  box.append(h, p);
+  document.getElementById('app').replaceChildren(box);
+}
+window.addEventListener('error', (e) => e.error?.message !== 'missing config' && fatal('Erro', String(e.error?.stack || e.message)));
+window.addEventListener('unhandledrejection', (e) => fatal('Erro', String(e.reason?.stack || e.reason?.message || e.reason)));
+
+if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(SB_URL) || !SB_KEY) {
+  fatal('Configuração faltando',
+    'As variáveis de build não chegaram ao site.\n\n' +
+    `VITE_SUPABASE_URL: ${SB_URL ? `"${SB_URL}" (formato esperado: https://xxxx.supabase.co, sem / no final)` : 'VAZIA'}\n` +
+    `VITE_SUPABASE_ANON_KEY: ${SB_KEY ? 'ok (' + SB_KEY.length + ' caracteres)' : 'VAZIA'}\n\n` +
+    'Cloudflare → tomenota → Settings → Build → Variables and secrets, depois faça um novo deploy.');
+  throw new Error('missing config');
+}
+
+const sb = createClient(SB_URL, SB_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce' },
 });
 
