@@ -4,7 +4,7 @@ import { extractTags, extractLinks } from './parse.js';
 
 const SAVE_DELAY = 700;
 
-export function createNotes({ sb, h, toast, check, state, render, openTag }) {
+export function createNotes({ sb, h, toast, check, state, render, openTag, tags: tagIndex }) {
   let draft = null;      // nota aberta no editor: { id|null, title, body, pinned, created_at, updated_at }
   let timer = null;
   let dirty = false;
@@ -32,6 +32,13 @@ export function createNotes({ sb, h, toast, check, state, render, openTag }) {
     const byId = new Map();
     for (const r of results) for (const n of r.data) byId.set(n.id, n);
     return [...byId.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
+
+  // Cria uma nota direto (usado pela entrada rápida do diário e pelo "mover para Notas").
+  async function quickCreate({ title, body }) {
+    const res = await sb.from('notes').insert({ title, body, tags: extractTags(title + '\n' + body) }).select().single();
+    check(res);
+    return res.data;
   }
 
   async function open(id) {
@@ -213,7 +220,9 @@ export function createNotes({ sb, h, toast, check, state, render, openTag }) {
 
     main.append(
       h('div', { class: 'note-bar' }, back, h('span', { class: 'spacer' }), status, pin, del),
-      title, body, meta,
+      title, tagIndex.attach(title),
+      body, tagIndex.attach(body),
+      meta,
     );
     renderMeta();
     queueMicrotask(() => autosize(body));
@@ -224,5 +233,5 @@ export function createNotes({ sb, h, toast, check, state, render, openTag }) {
     else renderList(main);
   }
 
-  return { loadList, search, open, close, flush, hasPending, renderView, noteRow };
+  return { loadList, search, open, close, flush, hasPending, renderView, noteRow, quickCreate };
 }

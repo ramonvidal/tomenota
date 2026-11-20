@@ -1,6 +1,7 @@
 import './style.css';
 import { createClient } from '@supabase/supabase-js';
-import { parseEntry, isoDay, addDays, fromIso } from './parse.js';
+import { parseEntry, splitTitle, isoDay, addDays, fromIso, NOTEBOOK_TAG } from './parse.js';
+import { createTags } from './tags.js';
 import { createNotes } from './notes.js';
 
 // Aceita também a URL copiada com /rest/v1/ ou / no final: usa só https://xxxx.supabase.co
@@ -47,6 +48,7 @@ const state = {
   stage: 'loading',     // loading | login | mfa | recovery | app
   recovery: false,
   view: 'day',          // day | open | notes | search | account
+  kind: 'task',         // tipo escolhido nos botões: task | event | note | notebook
   notes: null,
   noteOpen: false,
   noteFilter: '',
@@ -83,18 +85,22 @@ const fmtLong = (iso) =>
 const fmtShort = (iso) =>
   fromIso(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
 
-function toast(msg) {
-  const t = h('div', { class: 'toast' }, msg);
+function toast(msg, action) {
+  document.querySelectorAll('.toast').forEach((x) => x.remove());   // um aviso por vez
+  const t = h('div', { class: 'toast' }, msg,
+    action ? h('button', { class: 'toast-action', onclick: () => { t.remove(); action.fn(); } }, action.label) : null);
   document.body.append(t);
-  setTimeout(() => t.remove(), 3500);
+  setTimeout(() => t.remove(), action ? 6000 : 3500);
 }
 
 function check({ error }) {
   if (error) { toast(error.message); throw error; }
 }
 
+const tags = createTags({ sb, h });
+
 const notes = createNotes({
-  sb, h, toast, check, state,
+  sb, h, toast, check, state, tags,
   render: () => render(),
   openTag: (t) => { state.tag = t; state.query = ''; go('search'); },
 });
@@ -140,12 +146,35 @@ async function load() {
   render();
 }
 
+// Texto da entrada rápida → nota do caderno. "Título: corpo"; as #tags vão no fim do corpo.
+async function sendToNotebook(text, entryTags) {
+  const { title, body } = splitTitle(text);
+  const tagLine = entryTags.map((t) => '#' + t).join(' ');
+  const note = await notes.quickCreate({ title, body: [body, tagLine].filter(Boolean).join('\n\n') });
+  toast(`Salvo em Notas: ${title}`, { label: 'abrir', fn: () => notes.open(note.id) });
+  tags.refresh();
+  return note;
+}
+
 async function add(raw) {
-  const e = parseEntry(raw, state.view === 'day' ? state.day : isoDay());
+  const e = parseEntry(raw, state.view === 'day' ? state.day : isoDay(), state.kind);
   if (!e.text) return;
+  if (e.kind === 'notebook') { await sendToNotebook(e.text, e.tags); return; }
   check(await sb.from('entries').insert(e));
   if (state.view === 'day' && e.day !== state.day) toast(`Anotado para ${fmtShort(e.day)}`);
+  if (e.tags.length) tags.refresh();
   await load();
+}
+
+// Trocar o tipo de uma entrada já anotada (ou movê-la para o caderno de Notas).
+async function changeKind(e, kind) {
+  if (kind === e.kind) return;
+  if (kind === 'notebook') {
+    await sendToNotebook(e.text, e.tags);
+    check(await sb.from('entries').delete().eq('id', e.id));
+    return load();
+  }
+  await update(e.id, { kind, status: e.status === 'migrated' ? 'migrated' : 'open' });
 }
 
 async function update(id, patch) {
@@ -176,6 +205,22 @@ async function migrateOverdue() {
 }
 
 // ---------- Render ----------
+const KINDS = [
+  { kind: 'task', icon: '•', label: 'Tarefa', placeholder: 'Nova tarefa…   #tag · ! prioridade · @amanhã' },
+  { kind: 'event', icon: '○', label: 'Evento', placeholder: 'Novo evento…   @sex · #tag' },
+  { kind: 'note', icon: '–', label: 'Nota', placeholder: 'Nota rápida no diário…   #tag' },
+  { kind: 'notebook', icon: '📝', label: 'Notas', placeholder: 'Vai direto para Notas…   Título: texto · #tag' },
+];
+
+function kindSelect(e) {
+  const sel = h('select', {
+    class: 'kind-select', title: 'Mudar tipo',
+    onchange: (ev) => changeKind(e, ev.target.value),
+  }, KINDS.map((k) => h('option', { value: k.kind }, k.kind === 'notebook' ? '📝 mover p/ Notas' : `${k.icon} ${k.label.toLowerCase()}`)));
+  sel.value = e.kind;
+  return sel;
+}
+
 const BULLET = {
   task: { open: '•', done: '×', migrated: '>', cancelled: '•' },
   note: { open: '–', done: '–', migrated: '>', cancelled: '–' },
@@ -205,7 +250,8 @@ function entryRow(e, showDay) {
   }
 
   const tomorrow = addDays(isoDay(), 1);
-  return h('li', { class: `entry ${e.kind} ${e.status} p${e.priority}` },
+  // tabindex -1: tocar na linha (celular) a "seleciona" e mostra as ações.
+  return h('li', { class: `entry ${e.kind} ${e.status} p${e.priority}`, tabindex: '-1' },
     h('button', { class: 'bullet', title: e.kind === 'task' ? 'Concluir / reabrir' : e.kind, onclick: toggle }, BULLET[e.kind][e.status]),
     h('div', { class: 'body' },
       body,
@@ -218,6 +264,7 @@ function entryRow(e, showDay) {
         ? h('button', { title: 'Migrar para hoje', onclick: () => migrate([e], isoDay()) }, '→ hoje') : null,
       e.kind === 'task' && e.status === 'open' && e.day !== tomorrow
         ? h('button', { title: 'Migrar para amanhã', onclick: () => migrate([e], tomorrow) }, '→ amanhã') : null,
+      kindSelect(e),
       h('button', { title: 'Editar', onclick: () => { state.editing = e.id; render(); } }, 'editar'),
       h('button', { title: 'Apagar', class: 'danger', onclick: () => confirm('Apagar?') && remove(e.id) }, 'apagar'),
     ),
@@ -225,12 +272,24 @@ function entryRow(e, showDay) {
 }
 
 async function go(view, day) {
-  if (state.noteOpen) { await notes.close(); }
+  if (state.noteOpen) { await notes.close(); tags.refresh(); }
   state.view = view;
   if (day) state.day = day;
   if (view !== 'search') state.tag = view === 'open' ? state.tag : null;
   state.editing = null;
   load();
+}
+
+function setKind(kind, input) {
+  state.kind = kind;
+  const k = KINDS.find((x) => x.kind === kind);
+  document.querySelectorAll('.kinds .kind').forEach((b, i) => {
+    const on = KINDS[i].kind === kind;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+  input.placeholder = k.placeholder;
+  input.focus();
 }
 
 // ---------- Autenticação ----------
@@ -334,7 +393,10 @@ async function refreshAuth() {
   }
   if (stage === state.stage) return;
   state.stage = stage;
-  if (stage === 'app') load(); else render();
+  if (stage === 'app') {
+    load();
+    tags.refresh().then(() => { if (state.view === 'search' && !state.query.trim() && !state.tag) render(); });
+  } else render();
 }
 
 // ---------- Conta ----------
@@ -442,10 +504,13 @@ function render() {
         `${state.overdue} tarefa(s) aberta(s) de dias anteriores. `,
         h('button', { onclick: migrateOverdue }, 'Migrar todas para hoje')));
     }
+    const current = KINDS.find((k) => k.kind === state.kind);
     const input = h('input', {
       id: 'quick', class: 'quick', autocomplete: 'off', maxlength: 2000,
-      placeholder: 'Anote algo…   - nota · o evento · #tag · ! · @amanhã',
+      placeholder: current.placeholder,
       onkeydown: async (ev) => {
+        // Alt+1..4 troca o tipo sem tirar a mão do teclado.
+        if (ev.altKey && /^[1-4]$/.test(ev.key)) { ev.preventDefault(); setKind(KINDS[Number(ev.key) - 1].kind, input); return; }
         if (ev.key === 'Enter' && ev.target.value.trim()) {
           const v = ev.target.value; ev.target.value = '';
           await add(v);
@@ -454,7 +519,17 @@ function render() {
         if (ev.key === 'Escape') ev.target.blur();
       },
     });
-    main.append(input);
+    const kinds = h('div', { class: 'kinds', role: 'radiogroup', 'aria-label': 'Tipo' },
+      KINDS.map((k, i) => h('button', {
+        type: 'button', role: 'radio', 'aria-checked': String(k.kind === state.kind),
+        class: 'kind' + (k.kind === state.kind ? ' on' : '') + (k.kind === 'notebook' ? ' nb' : ''),
+        title: `${k.label} (Alt+${i + 1})`,
+        onmousedown: (ev) => ev.preventDefault(),
+        onclick: () => setKind(k.kind, input),
+      }, h('span', { class: 'kind-icon' }, k.icon), k.label)));
+    main.append(input,
+      tags.attach(input, { extra: [{ tag: NOTEBOOK_TAG, label: '#nota → vai para Notas' }] }),
+      kinds);
     const list = h('ul', { class: 'entries' }, state.entries.map((e) => entryRow(e, false)));
     main.append(state.entries.length ? list : h('p', { class: 'empty' }, state.busy ? '' : 'Página em branco. Comece a anotar.'));
   }
@@ -490,6 +565,14 @@ function render() {
     main.append(h('ul', { class: 'entries' }, state.entries.map((e) => entryRow(e, true))));
     if ((state.query.trim() || state.tag) && !state.entries.length && !state.searchNotes.length && !state.busy) {
       main.append(h('p', { class: 'empty' }, 'Nada encontrado.'));
+    }
+    if (!state.query.trim() && !state.tag) {
+      const all = tags.list();
+      main.append(h('h3', { class: 'section' }, 'Tags'),
+        all.length
+          ? h('div', { class: 'tag-cloud' }, all.map(([t, n]) =>
+            h('button', { class: 'tag-pill', onclick: () => { state.tag = t; load(); } }, '#' + t, h('span', { class: 'count' }, n))))
+          : h('p', { class: 'muted' }, 'Nenhuma tag ainda. Use #algo nas suas anotações e notas.'));
     }
     queueMicrotask(() => {
       if (document.activeElement?.id !== 'quick') { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }

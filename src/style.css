@@ -158,3 +158,37 @@ h3.section { font-size: .8rem; color: var(--muted); text-transform: uppercase; l
   nav button { padding: 4px 7px; font-size: .92rem; }
   main { padding: 12px 14px 80px; }
 }
+
+/* ---------- Tipos (bullets) e tags ---------- */
+.kinds { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
+.kind { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+.kind:hover { color: var(--fg); border-color: var(--muted); }
+.kind.on { color: var(--bg); background: var(--fg); border-color: var(--fg); }
+.kind.nb.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.kind-icon { font-weight: 700; }
+
+.kind-select { font: inherit; font-size: .78rem; color: var(--muted); background: transparent; border: 0; padding: 0; cursor: pointer; max-width: 9.5em; }
+.kind-select:hover, .kind-select:focus { color: var(--fg); }
+
+.suggest { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 12px; }
+.suggest[hidden] { display: none; }
+.tag-choice { font-size: .85rem; color: var(--accent); padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); }
+.tag-choice.first { border-color: var(--accent); }
+.tag-choice:hover { background: var(--hover); }
+.count { color: var(--muted); font-size: .75em; margin-left: 5px; }
+
+.tag-cloud { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag-pill { color: var(--accent); padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: .9rem; }
+.tag-pill:hover { border-color: var(--accent); }
+
+.toast { display: flex; align-items: center; gap: 14px; }
+.toast-action { color: var(--accent); font-weight: 700; text-decoration: underline; }
+
+/* Celular: ações numa linha própria, aparecem ao tocar na entrada (sem espremer o texto). */
+.entry:focus { outline: none; }
+@media (max-width: 520px) {
+  .entry { flex-wrap: wrap; }
+  .entry .actions { display: none; flex-basis: 100%; padding: 4px 0 2px 28px; gap: 16px; opacity: 1; font-size: .85rem; }
+  .entry:focus-within .actions, .entry:hover .actions { display: flex; }
+  .entry:focus-within { background: var(--hover); }
+}

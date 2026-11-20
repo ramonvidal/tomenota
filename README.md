@@ -4,7 +4,13 @@ Notas rápidas + bullet journal. Simples, rápido, privado.
 
 ## Como usar
 
-Digite e aperte **Enter**. A sintaxe é opcional:
+Escolha o tipo nos botões abaixo da entrada (**• Tarefa · ○ Evento · – Nota · 📝 Notas**, ou `Alt+1…4`), digite e aperte **Enter**.
+O botão **📝 Notas** (ou `#nota` em qualquer lugar) manda o texto direto para o caderno de Notas: o que vem antes do primeiro `:` vira o título (`Reunião com X: decidimos adiar` → título "Reunião com X").
+
+Ao digitar `#`, aparecem sugestões das suas tags (`Tab` escolhe). Na **Busca** vazia, a lista de todas as tags com contagem.
+Para mudar o tipo de uma entrada já anotada (ou movê-la para Notas), use o menu de tipo na linha (no celular: toque na entrada).
+
+A sintaxe digitada continua valendo e tem prioridade sobre o botão:
 
 | Você digita | Vira |
 |---|---|
@@ -14,6 +20,7 @@ Digite e aperte **Enter**. A sintaxe é opcional:
 | `#casa` | tag (clique para filtrar) |
 | `!` `!!` `!!!` | prioridade |
 | `@amanhã` `@sex` `@25/12` `@2026-12-25` | anota em outro dia |
+| `#nota` | vai para o caderno de Notas |
 
 - Clique no `•` para concluir (`×`). Dê dois cliques no texto para editar.
 - **→ hoje / → amanhã**: migração estilo bullet journal. O original vira `>` e uma cópia vai para o novo dia.

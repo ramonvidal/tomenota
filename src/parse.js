@@ -50,6 +50,20 @@ function parseDate(token, baseDay) {
   return null;
 }
 
+// Normaliza uma tag: minúsculas, sem acento ("#Orçamento" e "#orcamento" são a mesma).
+export const normalizeTag = (t) => strip(t);
+
+// Tag especial: a entrada vai direto para o caderno de Notas.
+export const NOTEBOOK_TAG = 'nota';
+
+// "Título: corpo" → { title, body }. Só separa em ":" seguido de espaço (ou no fim),
+// para não cortar horários (14:00) nem links (https://…).
+export function splitTitle(text) {
+  const m = text.match(/^(.*?\S)\s*:(?:\s+|$)([\s\S]*)$/);
+  if (!m) return { title: text.trim(), body: '' };
+  return { title: m[1].trim(), body: m[2].trim() };
+}
+
 const TAG_RE = /(^|\s)#([\p{L}\p{N}_-]+)/gu;
 
 // Tags (#algo) em qualquer lugar de um texto livre, normalizadas (minúsculas, sem acento).
@@ -66,9 +80,11 @@ export function extractLinks(text) {
   return [...links];
 }
 
-export function parseEntry(raw, baseDay) {
+// kind: 'task' | 'event' | 'note' (diário) | 'notebook' (vai para Notas).
+// defaultKind vem dos botões de tipo; um prefixo digitado ("- ", "o ", "* ") tem prioridade.
+export function parseEntry(raw, baseDay, defaultKind = 'task') {
   let text = raw.trim();
-  let kind = 'task';
+  let kind = defaultKind;
   if (/^[-–]\s+/.test(text)) { kind = 'note'; text = text.replace(/^[-–]\s+/, ''); }
   else if (/^(o|○)\s+/i.test(text)) { kind = 'event'; text = text.replace(/^(o|○)\s+/i, ''); }
   else if (/^[*•]\s+/.test(text)) { text = text.replace(/^[*•]\s+/, ''); }
@@ -88,5 +104,6 @@ export function parseEntry(raw, baseDay) {
     kept.push(tok);
   }
   text = kept.join(' ').trim();
+  if (tags.has(NOTEBOOK_TAG)) { tags.delete(NOTEBOOK_TAG); kind = 'notebook'; }
   return { kind, text, tags: [...tags], priority, day };
 }
