@@ -35,6 +35,18 @@ function monthStart(mi, year) {
 
 export const firstOfMonth = (iso) => iso.slice(0, 8) + '01';
 
+// ---------- Dias úteis ----------
+// O app informa quais dias são folga (fins de semana, feriados). Padrão: sábado e domingo.
+let isOffDay = (iso) => [0, 6].includes(fromIso(iso).getDay());
+export function setOffDayChecker(fn) { isOffDay = fn; }
+
+// Próximo dia útil depois de "iso" (procura no máximo 60 dias).
+export function nextWorkday(iso = isoDay()) {
+  let d = addDays(iso, 1);
+  for (let i = 0; i < 60 && isOffDay(d); i++) d = addDays(d, 1);
+  return d;
+}
+
 function strip(s) {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
@@ -45,7 +57,7 @@ export function parseDate(token, baseDay = isoDay()) {
   const today = isoDay();
   const exact = (day) => ({ day, monthOnly: false });
   if (t === 'hoje') return exact(today);
-  if (t === 'amanha') return exact(addDays(today, 1));
+  if (t === 'amanha') return exact(nextWorkday(today));
   if (t === 'ontem') return exact(addDays(today, -1));
   let m = t.match(/^([a-z]+)(?:\/(\d{2}|\d{4}))?$/);
   if (m) {

@@ -1,7 +1,9 @@
 import './style.css';
 import { createClient } from '@supabase/supabase-js';
-import { parseEntry, splitTitle, isoDay, addDays, fromIso, firstOfMonth, NOTE_TAG } from './parse.js';
+import { parseEntry, splitTitle, isoDay, addDays, fromIso, firstOfMonth, nextWorkday, NOTE_TAG } from './parse.js';
+import { createCalendar, lowerSaxonyHolidays, WEEKDAY_NAMES } from './calendar.js';
 import { createTags } from './tags.js';
+import { createMenu } from './menu.js';
 import { createNotes } from './notes.js';
 
 // Aceita também a URL copiada com /rest/v1/ ou / no final: usa só https://xxxx.supabase.co
@@ -119,6 +121,8 @@ function check({ error }) {
 }
 
 const tags = createTags({ sb, h });
+const menu = createMenu(h);
+const cal = createCalendar({ sb, check, state });
 
 const notes = createNotes({
   sb, h, toast, check, state, tags,
@@ -145,15 +149,23 @@ async function fetchFuture() {
     .sort((x, y) => x.day.localeCompare(y.day) || (y.month_only - x.month_only) || x.created_at.localeCompare(y.created_at));
 }
 
+// Cada carga tem um número; se outra começou depois, a resposta antiga é descartada
+// (evita que uma resposta lenta apague o resultado mais novo, ex.: digitar logo ao abrir o Índice).
+let loadSeq = 0;
+
 async function load() {
+  const seq = ++loadSeq;
+  const stale = () => seq !== loadSeq;
   if (state.view === 'account') {
     const { data, error } = await sb.auth.mfa.listFactors();
+    if (stale()) return;
     if (error) toast(error.message);
     state.factors = data || { all: [], totp: [] };
     return render();
   }
   if (state.view === 'notes') {
     if (!state.noteOpen) await notes.loadList();
+    if (stale()) return;
     return render();
   }
   state.busy = true;
@@ -166,6 +178,7 @@ async function load() {
       sb.from('notes').select('*').eq('day', state.day).order('created_at'),
     ]);
     check(res); check(nres);
+    if (stale()) return;
     state.entries = res.data;
     state.dayNotes = nres.data;
     if (state.day === isoDay()) {
@@ -175,15 +188,19 @@ async function load() {
         sb.from('entries').select('id', { count: 'exact', head: true })
           .eq('kind', 'task').eq('status', 'open').eq('month_only', true).lt('day', firstOfMonth(state.day)),
       ]);
+      if (stale()) return;
       state.overdue = (o1.count || 0) + (o2.count || 0);
     }
   } else if (state.view === 'future') {
-    state.entries = await fetchFuture();
+    const future = await fetchFuture();
+    if (stale()) return;
+    state.entries = future;
   } else if (state.view === 'open') {
     let q = sb.from('entries').select('*').eq('kind', 'task').eq('status', 'open')
       .order('day').order('month_only', { ascending: false }).order('priority', { ascending: false }).order('created_at');
     if (state.tag) q = q.contains('tags', [state.tag]);
     const res = await q; check(res);
+    if (stale()) return;
     state.entries = res.data;
   } else {
     // Índice: busca + coleções (tags) + notas fixadas + resumo do futuro.
@@ -194,6 +211,7 @@ async function load() {
         fetchFuture(),
       ]);
       check(pinned);
+      if (stale()) return;
       state.pinnedNotes = pinned.data;
       const months = new Map();
       for (const e of future) { const m = firstOfMonth(e.day); months.set(m, (months.get(m) || 0) + 1); }
@@ -205,6 +223,7 @@ async function load() {
       if (state.tag) q = q.contains('tags', [state.tag]);
       const [res, found] = await Promise.all([q.order('day', { ascending: false }).limit(200), notes.search(term, state.tag)]);
       check(res);
+      if (stale()) return;
       state.entries = res.data;
       state.searchNotes = found;
     }
@@ -298,45 +317,61 @@ const KINDS = [
   { kind: 'note', icon: '–', label: 'Nota', placeholder: 'Nota (vai para Notas)…   Título: texto · #tag' },
 ];
 
-function kindSelect(e) {
-  const sel = h('select', {
-    class: 'kind-select', title: 'Mudar tipo',
-    onchange: (ev) => changeKind(e, ev.target.value),
-  }, KINDS.map((k) => h('option', { value: k.kind }, `${k.icon} ${k.label.toLowerCase()} ▾`)));
-  sel.value = e.kind;
-  return sel;
+// Menu "⋯" de uma tarefa/evento.
+function entryMenu(e, anchor) {
+  const open = e.status === 'open';
+  const today = isoDay();
+  const tomorrow = nextWorkday();   // "amanhã" = próximo dia útil
+  const literalTomorrow = tomorrow === addDays(today, 1);
+  const kindRow = () => h('div', { class: 'menu-kinds' }, KINDS.map((k) => h('button', {
+    type: 'button', class: 'kind' + (k.kind === e.kind ? ' on' : ''),
+    onclick: () => { menu.close(); changeKind(e, k.kind); },
+  }, h('span', { class: 'kind-icon' }, k.icon), k.label)));
+
+  const schedule = (api) => {
+    const d = fromIso(today);
+    const months = Array.from({ length: 12 }, (_, i) => isoDay(new Date(d.getFullYear(), d.getMonth() + 1 + i, 1)));
+    const picker = h('input', { type: 'date', class: 'date-pick', min: addDays(today, 1), value: tomorrow });
+    api.set(
+      menu.item('‹ voltar', () => api.set(main(api)), { keepOpen: true }),
+      menu.title('Para um dia'),
+      h('form', {
+        class: 'menu-date',
+        onsubmit: (ev) => { ev.preventDefault(); if (picker.value) { menu.close(); migrate([e], picker.value); } },
+      }, picker, h('button', { type: 'submit', class: 'primary' }, 'Agendar')),
+      menu.title('Para um mês (Future Log, sem dia)'),
+      h('div', { class: 'menu-months' }, months.map((m) => h('button', {
+        type: 'button', class: 'kind', onclick: () => { menu.close(); migrate([e], m, true); },
+      }, capitalize(fromIso(m).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''))))),
+    );
+  };
+
+  const main = (api) => [
+    e.kind === 'task' && open && (e.month_only || e.day !== today)
+      ? menu.item('→ Hoje', () => migrate([e], today)) : null,
+    e.kind === 'task' && open && (e.month_only || e.day !== tomorrow)
+      ? menu.item(literalTomorrow ? '→ Amanhã' : '→ Próximo dia útil', () => migrate([e], tomorrow), { hint: fmtShort(tomorrow) }) : null,
+    open ? menu.item('Agendar…', () => schedule(api), { keepOpen: true, hint: 'dia ou mês' }) : null,
+    menu.item(e.priority ? 'Tirar importante' : 'Marcar importante', () => update(e.id, { priority: e.priority ? 0 : 1 }), { hint: '*' }),
+    menu.sep(),
+    menu.title('Tipo'),
+    kindRow(),
+    menu.sep(),
+    menu.item('Editar', () => { state.editing = e.id; render(); }, { hint: '2 cliques' }),
+    menu.item('Apagar', () => confirm('Apagar?') && remove(e.id), { danger: true }),
+  ];
+  menu.open(anchor, main);
 }
 
-// "agendar ▸": escolher um mês (Future Log, sem dia) ou um dia específico.
-function scheduleSelect(e) {
-  const d = fromIso(isoDay());
-  const months = Array.from({ length: 12 }, (_, i) => isoDay(new Date(d.getFullYear(), d.getMonth() + 1 + i, 1)));
-  const sel = h('select', {
-    class: 'kind-select', title: 'Agendar para outro dia ou mês',
-    onchange: (ev) => {
-      const v = ev.target.value;
-      if (v === 'day') {
-        const picker = h('input', {
-          type: 'date', class: 'date-pick', min: addDays(isoDay(), 1),
-          onchange: (x) => x.target.value && migrate([e], x.target.value),
-          onblur: () => setTimeout(() => picker.isConnected && render(), 200),
-        });
-        sel.replaceWith(picker);
-        picker.focus();
-        try { picker.showPicker(); } catch {}
-      } else if (v) migrate([e], v, true);
-    },
-  },
-  h('option', { value: '' }, 'agendar ▸'),
-  h('option', { value: 'day' }, 'escolher dia…'),
-  months.map((m) => h('option', { value: m }, `${monthLabel(m)} (sem dia)`)));
-  return sel;
-}
+const moreButton = (onclick) => h('button', { class: 'more', title: 'Ações', 'aria-label': 'Ações', 'aria-haspopup': 'menu', onclick: (ev) => onclick(ev.currentTarget) }, '⋯');
 
 const BULLET = {
   task: { open: '•', done: '×', migrated: '>', scheduled: '<', cancelled: '•' },
   event: { open: '○', done: '◉', migrated: '>', scheduled: '<', cancelled: '○' },
+  // Notas antigas do diário (antes do 004_bujo.sql) ainda podem existir: mostra sem quebrar a tela.
+  note: { open: '–', done: '–', migrated: '>', scheduled: '<', cancelled: '–' },
 };
+const bulletFor = (e) => (BULLET[e.kind] || BULLET.task)[e.status] || '•';
 const STATUS_TITLE = { migrated: 'Migrada para outro dia (>)', scheduled: 'Agendada para o futuro (<)' };
 
 function dayLabel(e, mode) {
@@ -378,35 +413,20 @@ function entryRow(e, mode) {
     body = h('span', { class: 'text', ondblclick: () => { state.editing = e.id; render(); } }, e.text);
   }
 
-  const open = e.status === 'open';
-  const tomorrow = addDays(isoDay(), 1);
-  // tabindex -1: tocar na linha (celular) a "seleciona" e mostra as ações.
+  // tabindex -1: tocar na linha (celular) a "seleciona".
   return h('li', { class: `entry ${e.kind} ${e.status}${e.priority ? ' important' : ''}`, tabindex: '-1' },
     h('button', {
       class: 'sig', title: e.priority ? 'Importante (clique para tirar)' : 'Marcar como importante',
       onclick: () => update(e.id, { priority: e.priority ? 0 : 1 }),
     }, e.priority ? '*' : ''),
-    h('button', { class: 'bullet', title: STATUS_TITLE[e.status] || (e.kind === 'task' ? 'Concluir / reabrir' : 'Evento'), onclick: toggle }, BULLET[e.kind][e.status]),
+    h('button', { class: 'bullet', title: STATUS_TITLE[e.status] || (e.kind === 'task' ? 'Concluir / reabrir' : 'Evento'), onclick: toggle }, bulletFor(e)),
     h('div', { class: 'body' },
       body,
       e.tags.length ? h('span', { class: 'tags' }, e.tags.map((t) =>
         h('button', { class: 'tag', onclick: () => { state.tag = t; state.view = 'search'; state.query = ''; load(); } }, '#' + t))) : null,
       dayLabel(e, mode),
     ),
-    h('span', { class: 'actions' },
-      e.kind === 'task' && open && (e.month_only || e.day !== isoDay())
-        ? h('button', { title: 'Migrar para hoje', onclick: () => migrate([e], isoDay()) }, '→ hoje') : null,
-      e.kind === 'task' && open && (e.month_only || e.day !== tomorrow)
-        ? h('button', { title: 'Migrar para amanhã', onclick: () => migrate([e], tomorrow) }, '→ amanhã') : null,
-      open ? scheduleSelect(e) : null,
-      h('button', {
-        class: 'star-action', title: e.priority ? 'Tirar a marca de importante' : 'Marcar como importante',
-        onclick: () => update(e.id, { priority: e.priority ? 0 : 1 }),
-      }, e.priority ? 'tirar *' : '* importante'),
-      kindSelect(e),
-      h('button', { title: 'Editar', onclick: () => { state.editing = e.id; render(); } }, 'editar'),
-      h('button', { title: 'Apagar', class: 'danger', onclick: () => confirm('Apagar?') && remove(e.id) }, 'apagar'),
-    ),
+    moreButton((anchor) => entryMenu(e, anchor)),
   );
 }
 
@@ -422,22 +442,26 @@ function noteDayRow(n) {
       n.tags.length ? h('span', { class: 'tags' }, n.tags.map((t) =>
         h('button', { class: 'tag', onclick: () => { state.tag = t; state.view = 'search'; state.query = ''; load(); } }, '#' + t))) : null,
     ),
-    h('span', { class: 'actions' },
-      h('button', { onclick: () => notes.open(n.id) }, 'abrir'),
-      h('button', {
-        class: 'danger',
-        onclick: async () => { if (!confirm('Apagar esta nota?')) return; check(await sb.from('notes').delete().eq('id', n.id)); load(); },
-      }, 'apagar'),
-    ),
+    moreButton((anchor) => menu.open(anchor, () => [
+      menu.item('Abrir nota', () => notes.open(n.id)),
+      menu.item('Apagar', async () => { if (!confirm('Apagar esta nota?')) return; check(await sb.from('notes').delete().eq('id', n.id)); load(); }, { danger: true }),
+    ])),
   );
 }
 
 async function go(view, day) {
   if (state.noteOpen) { await notes.close(); tags.refresh(); }
+  const changed = view !== state.view || (day && day !== state.day);
   state.view = view;
   if (day) state.day = day;
   if (view !== 'search') state.tag = view === 'open' ? state.tag : null;
   state.editing = null;
+  menu.close();
+  // Troca de tela na hora (sem esperar a rede); os dados chegam logo depois.
+  if (changed) {
+    state.entries = []; state.dayNotes = []; state.searchNotes = []; state.overdue = 0; state.busy = true;
+    if (view !== 'account' || state.factors) render();
+  }
   load();
 }
 
@@ -555,12 +579,46 @@ async function refreshAuth() {
   if (stage === state.stage) return;
   state.stage = stage;
   if (stage === 'app') {
+    await cal.load();
     load();
     tags.refresh().then(() => { if (state.view === 'search' && !state.query.trim() && !state.tag) render(); });
   } else render();
 }
 
 // ---------- Conta ----------
+// "sex., 20/11" no ano atual; "sex., 01/01/27" nos outros.
+const fmtHoliday = (iso) => fromIso(iso).toLocaleDateString('pt-BR', {
+  weekday: 'short', day: '2-digit', month: '2-digit',
+  year: fromIso(iso).getFullYear() === new Date().getFullYear() ? undefined : '2-digit',
+});
+
+function workdaysCard() {
+  const off = cal.offWeekdays;
+  const year = new Date().getFullYear();
+  const list = cal.upcoming();
+  return h('section', { class: 'card' }, h('h3', {}, 'Dias úteis'),
+    h('p', { class: 'muted small' }, '"Amanhã" (no @amanhã e no botão → amanhã) vai sempre para o próximo dia útil. Toque para ligar/desligar:'),
+    h('div', { class: 'kinds' }, [1, 2, 3, 4, 5, 6, 0].map((d) => h('button', {
+      type: 'button', class: 'kind' + (off.includes(d) ? '' : ' on'), 'aria-pressed': String(!off.includes(d)),
+      title: off.includes(d) ? 'Folga (toque para tornar útil)' : 'Dia útil (toque para tornar folga)',
+      onclick: async () => {
+        const next = off.includes(d) ? off.filter((x) => x !== d) : [...off, d].sort();
+        if (next.length === 7) return toast('Pelo menos um dia da semana precisa ser útil.');
+        await cal.setWeekdays(next); render();
+      },
+    }, WEEKDAY_NAMES[d]))),
+    h('h3', { class: 'sub' }, 'Feriados e folgas'),
+    list.length
+      ? h('ul', { class: 'holidays' }, list.map((x) => h('li', {},
+        h('span', { class: x.off ? '' : 'muted' }, `${fmtHoliday(x.day)} — ${x.label || (x.off ? 'folga' : 'dia útil (exceção)')}`),
+        h('button', { class: 'link-inline', title: 'Remover', onclick: async () => { await cal.setDay(x.day, !x.off); render(); } }, 'remover'))))
+      : h('p', { class: 'muted small' }, 'Nenhum. Marque um dia no topo da página do Dia, ou adicione os feriados da Baixa Saxônia (Niedersachsen):'),
+    h('div', { class: 'kinds' }, [year, year + 1].map((y) => h('button', {
+      type: 'button', class: 'kind',
+      onclick: async () => { const n = await cal.addHolidays(lowerSaxonyHolidays(y)); toast(n ? `${n} feriado(s) de ${y} adicionado(s).` : `Os feriados de ${y} já estavam marcados.`); render(); },
+    }, `+ feriados Baixa Saxônia ${y}`))));
+}
+
 function decodeURIComponentSafe(t) { try { return decodeURIComponent(t); } catch { return t; } }
 
 function renderAccount(main) {
@@ -575,6 +633,8 @@ function renderAccount(main) {
         onclick: () => { setTheme(v); render(); },
       }, label))),
     h('p', { class: 'muted small' }, 'Automático segue o modo claro/escuro do seu aparelho. Fica salvo neste navegador.')));
+
+  main.append(workdaysCard());
 
   main.append(h('section', { class: 'card' }, h('h3', {}, 'Senha'), passwordForm()));
 
@@ -676,6 +736,45 @@ function quickInput(main, extraHint) {
 
 const capitalize = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
+// Abas, na ordem do bullet journal: o Índice vem primeiro.
+const TABS = [
+  ['search', 'Índice', 'index'],
+  ['day', 'Dia', 'day'],
+  ['future', 'Futuro', 'future'],
+  ['open', 'Pendentes', 'open'],
+  ['notes', 'Notas', 'notes'],
+];
+const ICONS = {
+  index: ['M9 6h11', 'M9 12h11', 'M9 18h11', 'M4.5 6h.01', 'M4.5 12h.01', 'M4.5 18h.01'],
+  day: ['M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z', 'M4 10h16', 'M8.5 3v4', 'M15.5 3v4', 'M12 14.5h.01'],
+  future: ['M4 12h13', 'M12 6l6 6-6 6', 'M21 5v14'],
+  open: ['M5 5h14v14H5z', 'M8.5 12.5l2.5 2.5 4.5-5.5'],
+  notes: ['M6 3h9l4 4v14H6z', 'M15 3v4h4', 'M9 12h7', 'M9 16h5'],
+};
+function svgIcon(name) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: '20', height: '20', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', class: 'ico' })) svg.setAttribute(k, v);
+  for (const d of ICONS[name]) { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); svg.append(p); }
+  return svg;
+}
+
+// Faixa da semana (seg–dom) do dia aberto: hoje marcado, dias não úteis apagados.
+function weekStrip() {
+  const d = fromIso(state.day);
+  const monday = addDays(state.day, -((d.getDay() + 6) % 7));
+  const today = isoDay();
+  return h('div', { class: 'week', role: 'tablist', 'aria-label': 'Semana' },
+    Array.from({ length: 7 }, (_, i) => addDays(monday, i)).map((iso) => {
+      const x = fromIso(iso);
+      return h('button', {
+        class: 'wd' + (iso === state.day ? ' on' : '') + (iso === today ? ' today' : '') + (cal.isOff(iso) ? ' off' : ''),
+        title: cal.reason(iso) ? `${fmtShort(iso)} · ${cal.reason(iso)}` : fmtShort(iso),
+        onclick: () => go('day', iso),
+      }, h('span', { class: 'wd-name' }, WEEKDAY_NAMES[x.getDay()]), h('span', { class: 'wd-num' }, String(x.getDate())));
+    }));
+}
+
 // Ordem do Dia: importantes (*) primeiro; depois agrupado por #tag (grupos e itens em ordem
 // alfabética, sem tag por último; em cada grupo, as fechadas vão para o fim); notas no fim.
 const byText = (a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base', numeric: true });
@@ -728,12 +827,15 @@ function render() {
   if (state.stage === 'mfa') return renderMfa();
   if (state.stage === 'recovery') return renderRecovery();
 
-  const nav = h('nav', {},
-    ...[['day', 'Dia'], ['future', 'Futuro'], ['open', 'Pendentes'], ['notes', 'Notas'], ['search', 'Índice']].map(([v, label]) =>
-      h('button', { class: state.view === v ? 'on' : '', onclick: () => go(v, v === 'day' ? state.day : null) }, label)),
-    h('button', { class: 'logout' + (state.view === 'account' ? ' on' : ''), title: state.session.user.email, onclick: () => go('account') }, 'conta'),
-    h('button', { class: 'nav-signout', title: 'Sair deste dispositivo', onclick: () => sb.auth.signOut({ scope: 'local' }) }, 'sair'),
-  );
+  // Abas: no computador ficam no topo; no celular, embaixo (ao alcance do polegar).
+  const nav = h('nav', { class: 'tabs', 'aria-label': 'Seções' },
+    TABS.map(([v, label, icon]) => h('button', {
+      class: 'tab' + (state.view === v ? ' on' : ''), 'aria-current': state.view === v ? 'page' : null,
+      onclick: () => go(v, v === 'day' ? state.day : null),
+    }, svgIcon(icon), h('span', {}, label))));
+  const account = h('div', { class: 'account' },
+    h('button', { class: 'tab' + (state.view === 'account' ? ' on' : ''), title: state.session.user.email, onclick: () => go('account') }, 'conta'),
+    h('button', { class: 'tab nav-signout', title: 'Sair deste dispositivo', onclick: () => sb.auth.signOut({ scope: 'local' }) }, 'sair'));
 
   const main = h('main', {});
 
@@ -747,6 +849,22 @@ function render() {
         !isToday ? h('button', { class: 'today', onclick: () => go('day', isoDay()) }, 'hoje') : null,
       ),
     );
+    main.append(weekStrip());
+    const why = cal.reason(state.day);
+    main.append(h('div', { class: 'daystatus' + (why ? ' off' : '') },
+      why ? `Dia não útil · ${why}` : null,
+      h('button', {
+        class: 'link-inline',
+        onclick: async () => {
+          if (why) await cal.setDay(state.day, false);
+          else {
+            const label = prompt('Marcar como dia não útil. Nome (opcional), ex.: "Natal", "férias":', '');
+            if (label === null) return;
+            await cal.setDay(state.day, true, label.trim().slice(0, 100));
+          }
+          render();
+        },
+      }, why ? 'tornar dia útil' : 'marcar como dia não útil')));
     if (state.overdue) {
       main.append(h('div', { class: 'banner' },
         `${state.overdue} tarefa(s) aberta(s) de dias anteriores. `,
@@ -837,7 +955,7 @@ function render() {
   if (state.view === 'notes') notes.renderView(main);
   if (state.view === 'account') renderAccount(main);
 
-  app.replaceChildren(h('header', {}, h('span', { class: 'logo' }, 'Tome Nota!'), nav), main);
+  app.replaceChildren(h('header', {}, h('span', { class: 'logo' }, 'Tome Nota!'), nav, account), main);
 }
 
 // ---------- Atalhos ----------

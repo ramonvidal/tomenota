@@ -19,19 +19,23 @@ Escolha o tipo nos botões abaixo da entrada (**• Tarefa · ○ Evento · – 
 ### Bullets e sinalizadores
 `•` tarefa · `×` feita · `>` migrada (outro dia) · `<` agendada (foi para o Futuro) · `○` evento · `–` nota · `*` importante
 
-- Clique no `•` para concluir. Dois cliques no texto para editar.
-- **→ hoje / → amanhã / agendar ▸** (dia ou mês): a original fica `>` (ou `<` se foi para um mês futuro) e uma cópia vai para o destino.
+- Clique no `•` para concluir. Dois cliques no texto para editar. Clique na margem à esquerda para marcar `*`.
+- Menu **⋯** de cada linha (no celular, sobe da parte de baixo): **→ hoje**, **→ amanhã** (próximo dia útil), **Agendar…** (um dia ou um mês), importante, tipo, editar, apagar. A original fica `>` (ou `<` se foi para um mês futuro) e uma cópia vai para o destino.
 - Tarefas abertas de dias (ou meses) anteriores aparecem num aviso em "hoje", com um botão para migrar todas.
+
+### Dias úteis
+"Amanhã" (`@amanhã` e o botão **→ amanhã**) vai sempre para o **próximo dia útil**. Em **conta → Dias úteis** você escolhe os dias da semana úteis (padrão: seg–sex) e adiciona os feriados oficiais da **Baixa Saxônia (Niedersachsen)** do ano. No topo de cada dia: **marcar como dia não útil** (com nome, ex.: "férias") ou **tornar dia útil** (ex.: um sábado de trabalho). Datas explícitas (`@sáb`, `@25/12`) valem como escritas.
 
 ### Aparência
 Em **conta → Aparência**: **Automático** (segue o modo claro/escuro do aparelho), **Claro** ou **Preto** (fundo preto puro, bom para telas OLED). Fica salvo em cada navegador.
 
 ### Abas
-- **Dia**: o daily log. Ordem: importantes (`*`) primeiro, depois agrupado por #tag em ordem alfabética (sem tag por último), notas no fim.
+No computador ficam no topo; no celular, embaixo, com ícones.
+- **Índice**: busca em tudo + coleções (tags) + notas fixadas + resumo do futuro.
+- **Dia**: o daily log, com a faixa da semana para pular de dia (hoje destacado, dias não úteis apagados). Ordem: importantes (`*`) primeiro, depois agrupado por #tag em ordem alfabética (sem tag por último), notas no fim.
 - **Futuro**: o Future Log, por mês. Sem `@data`, o que você digita ali vai para o próximo mês.
 - **Pendentes**: todas as tarefas abertas.
 - **Notas**: o caderno. Título + texto, salva sozinho, `#tags`, links clicáveis, fixar.
-- **Índice**: busca em tudo + coleções (tags) + notas fixadas + resumo do futuro.
 
 **Atalhos:** `n` nova anotação · `/` focar entrada · `[` `]` dia anterior/próximo · `t` hoje · `f` futuro · `p` pendentes · `a` notas · `i` índice
 
@@ -50,7 +54,7 @@ Em **conta → Aparência**: **Automático** (segue o modo claro/escuro do apare
 
 ### 1. Supabase
 1. Crie um projeto em https://supabase.com (plano Free).
-2. **SQL Editor** → cole e rode `supabase/schema.sql`. (Projeto já existente? Rode só os arquivos novos, em ordem: `002_mfa.sql`, `003_notes.sql`, `004_bujo.sql`.)
+2. **SQL Editor** → cole e rode `supabase/schema.sql`. (Projeto já existente? Rode só os arquivos novos, em ordem: `002_mfa.sql`, `003_notes.sql`, `004_bujo.sql`, `005_workdays.sql`.)
 3. **Authentication → Users → Add user → Send invitation** com seu e-mail.
 4. **Authentication → Sign In / Providers**: desative *Allow new users to sign up*.
 5. **Authentication → URL Configuration**: em *Site URL*, coloque a URL do Cloudflare Pages (ex.: `https://tomenota.pages.dev`). Adicione `http://localhost:5173` em *Redirect URLs* para desenvolvimento.
