@@ -225,3 +225,5 @@ button.sig:hover { background: var(--line); }
   nav button { padding: 4px 4px; font-size: .85rem; }
   header { gap: 4px; }
 }
+.group.tag-group { margin: 14px 0 2px 44px; font-size: .78rem; text-transform: none; }
+.group.tag-group .tag { font-size: .78rem; }

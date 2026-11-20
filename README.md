@@ -24,7 +24,7 @@ Escolha o tipo nos botões abaixo da entrada (**• Tarefa · ○ Evento · – 
 - Tarefas abertas de dias (ou meses) anteriores aparecem num aviso em "hoje", com um botão para migrar todas.
 
 ### Abas
-- **Dia**: o daily log (tarefas, eventos e as notas anotadas naquele dia).
+- **Dia**: o daily log. Ordem: importantes (`*`) primeiro, depois agrupado por #tag em ordem alfabética (sem tag por último), notas no fim.
 - **Futuro**: o Future Log, por mês. Sem `@data`, o que você digita ali vai para o próximo mês.
 - **Pendentes**: todas as tarefas abertas.
 - **Notas**: o caderno. Título + texto, salva sozinho, `#tags`, links clicáveis, fixar.

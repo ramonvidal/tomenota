@@ -649,6 +649,46 @@ function quickInput(main, extraHint) {
 
 const capitalize = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
+// Ordem do Dia: importantes (*) primeiro; depois agrupado por #tag (grupos e itens em ordem
+// alfabética, sem tag por último); notas no fim, em ordem alfabética.
+const byText = (a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base', numeric: true });
+const groupTag = (e) => [...e.tags].sort(byText)[0] || null;
+
+function sortByTagThenText(list, text) {
+  return [...list].sort((a, b) => {
+    const ta = groupTag(a), tb = groupTag(b);
+    if (ta !== tb) return ta == null ? 1 : tb == null ? -1 : byText(ta, tb);
+    return byText(text(a), text(b));
+  });
+}
+
+function dayRows() {
+  const rows = [];
+  const important = sortByTagThenText(state.entries.filter((e) => e.priority > 0), (e) => e.text);
+  const rest = sortByTagThenText(state.entries.filter((e) => !e.priority), (e) => e.text);
+  rows.push(...important.map((e) => entryRow(e)));
+
+  // Cabeçalho discreto quando muda o grupo de tag (só se houver mais de um grupo).
+  const groups = new Set(rest.map(groupTag));
+  let last;
+  for (const e of rest) {
+    const g = groupTag(e);
+    if (groups.size > 1 && g !== last) {
+      rows.push(h('li', { class: 'group tag-group' }, g
+        ? h('button', { class: 'tag', onclick: () => { state.tag = g; state.view = 'search'; state.query = ''; load(); } }, '#' + g)
+        : 'sem tag'));
+    }
+    last = g;
+    rows.push(entryRow(e));
+  }
+
+  if (state.dayNotes.length) {
+    if (state.entries.length) rows.push(h('li', { class: 'group tag-group' }, 'notas'));
+    rows.push(...[...state.dayNotes].sort((a, b) => byText(a.title || '', b.title || '')).map(noteDayRow));
+  }
+  return rows;
+}
+
 function render() {
   if (state.stage === 'loading') return;
   if (state.stage === 'login') return renderLogin();
@@ -680,13 +720,8 @@ function render() {
         h('button', { onclick: migrateOverdue }, 'Migrar todas para hoje')));
     }
     quickInput(main);
-    // Tarefas/eventos e notas do dia, na ordem em que foram anotados.
-    const rows = [
-      ...state.entries.map((e) => ({ at: e.created_at, el: () => entryRow(e) })),
-      ...state.dayNotes.map((n) => ({ at: n.created_at, el: () => noteDayRow(n) })),
-    ].sort((a, b) => (a.at || '').localeCompare(b.at || ''));
-    main.append(rows.length
-      ? h('ul', { class: 'entries' }, rows.map((r) => r.el()))
+    main.append(state.entries.length || state.dayNotes.length
+      ? h('ul', { class: 'entries' }, dayRows())
       : h('p', { class: 'empty' }, state.busy ? '' : 'Página em branco. Comece a anotar.'));
   }
 
