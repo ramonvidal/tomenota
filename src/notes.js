@@ -4,7 +4,7 @@ import { extractTags, extractLinks } from './parse.js';
 
 const SAVE_DELAY = 700;
 
-export function createNotes({ sb, h, toast, check, state, render, openTag, tags: tagIndex }) {
+export function createNotes({ sb, h, toast, check, state, render, openTag, openDay, tags: tagIndex }) {
   let draft = null;      // nota aberta no editor: { id|null, title, body, pinned, created_at, updated_at }
   let timer = null;
   let dirty = false;
@@ -35,8 +35,8 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, tags:
   }
 
   // Cria uma nota direto (usado pela entrada rápida do diário e pelo "mover para Notas").
-  async function quickCreate({ title, body }) {
-    const res = await sb.from('notes').insert({ title, body, tags: extractTags(title + '\n' + body) }).select().single();
+  async function quickCreate({ title, body, day = null }) {
+    const res = await sb.from('notes').insert({ title, body, day, tags: extractTags(title + '\n' + body) }).select().single();
     check(res);
     return res.data;
   }
@@ -174,7 +174,9 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, tags:
         try { const x = new URL(u); label = x.hostname.replace(/^www\./, '') + (x.pathname.length > 1 ? x.pathname : ''); } catch {}
         return h('a', { href: u, target: '_blank', rel: 'noopener noreferrer' }, '↗ ' + (label.length > 60 ? label.slice(0, 59) + '…' : label));
       })) : null,
-      draft.created_at ? h('div', { class: 'muted small' }, `criada ${fmtWhen(draft.created_at)}`) : null,
+      draft.created_at ? h('div', { class: 'muted small' }, `criada ${fmtWhen(draft.created_at)}`,
+        draft.day ? [' · no diário de ', h('button', { class: 'link-inline', onclick: () => openDay(draft.day) },
+          new Date(draft.day + 'T12:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }))] : null) : null,
     ].filter(Boolean));
   }
 

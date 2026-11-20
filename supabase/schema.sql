@@ -96,3 +96,32 @@ grant select, insert, update, delete on public.notes to authenticated;
 drop trigger if exists notes_touch on public.notes;
 create trigger notes_touch before update on public.notes
   for each row execute function public.touch_updated_at();
+
+-- Mais bullet journal (mesmo conteúdo de 004_bujo.sql)
+alter table public.entries add column if not exists month_only boolean not null default false;
+
+alter table public.entries drop constraint if exists entries_status_check;
+alter table public.entries add constraint entries_status_check
+  check (status in ('open','done','migrated','cancelled','scheduled'));
+
+alter table public.notes add column if not exists day date;
+create index if not exists notes_user_day on public.notes (user_id, day);
+
+-- Transfere as notas antigas do diário (kind = 'note') para o caderno.
+-- "Título: corpo" vira título + corpo; as #tags vão no fim do corpo.
+with moved as (
+  delete from public.entries where kind = 'note' returning *
+), parts as (
+  select m.*,
+         substring(m.text from '^(.*?\S)\s*:(?:\s+|$)') as t,
+         substring(m.text from '^.*?\S\s*:(?:\s+|$)(.*)$') as b
+  from moved m
+)
+insert into public.notes (user_id, title, body, tags, day, created_at, updated_at)
+select user_id,
+       left(coalesce(t, text), 300),
+       trim(concat_ws(E'\n\n',
+         nullif(trim(coalesce(b, '')), ''),
+         case when cardinality(tags) > 0 then '#' || array_to_string(tags, ' #') end)),
+       tags, day, created_at, now()
+from parts;

@@ -53,16 +53,11 @@ main > h2 { margin: 16px 0; }
 }
 .entry:hover { background: var(--hover); }
 .bullet { width: 18px; flex: none; text-align: center; font-weight: 700; color: var(--fg); }
-.note .bullet, .event .bullet { cursor: default; }
 .body { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .note .text { color: var(--muted); }
-.done .text, .migrated .text { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--muted); }
-.migrated .bullet { color: var(--muted); }
-.p1 .text::before { content: "! "; color: var(--accent); font-weight: 700; }
-.p2 .text::before { content: "!! "; color: var(--accent); font-weight: 700; }
-.p3 .text::before { content: "!!! "; color: var(--accent); font-weight: 700; }
-.done .text::before, .migrated .text::before { color: var(--muted); }
+.done .text, .migrated .text, .scheduled .text { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--muted); }
+.migrated .bullet, .scheduled .bullet { color: var(--muted); }
 
 .tags { display: inline-flex; gap: 4px; }
 .tag { font-size: .8rem; color: var(--accent); }
@@ -164,7 +159,6 @@ h3.section { font-size: .8rem; color: var(--muted); text-transform: uppercase; l
 .kind { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
 .kind:hover { color: var(--fg); border-color: var(--muted); }
 .kind.on { color: var(--bg); background: var(--fg); border-color: var(--fg); }
-.kind.nb.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .kind-icon { font-weight: 700; }
 
 .kind-select { font: inherit; font-size: .78rem; color: var(--muted); background: transparent; border: 0; padding: 0; cursor: pointer; max-width: 9.5em; }
@@ -188,7 +182,34 @@ h3.section { font-size: .8rem; color: var(--muted); text-transform: uppercase; l
 .entry:focus { outline: none; }
 @media (max-width: 520px) {
   .entry { flex-wrap: wrap; }
-  .entry .actions { display: none; flex-basis: 100%; padding: 4px 0 2px 28px; gap: 16px; opacity: 1; font-size: .85rem; }
+  .entry .actions { display: none; flex-basis: 100%; padding: 4px 0 2px 44px; gap: 16px; opacity: 1; font-size: .85rem; }
   .entry:focus-within .actions, .entry:hover .actions { display: flex; }
   .entry:focus-within { background: var(--hover); }
+}
+
+/* ---------- Bullet journal: sinalizador "*", notas no dia, futuro, índice ---------- */
+.entry { gap: 6px; }
+.sig { width: 14px; flex: none; text-align: center; color: var(--accent); font-weight: 800; font-size: 1.15rem; line-height: 1; opacity: 1; }
+.sig:empty::after { content: "*"; color: transparent; }
+.entry:hover button.sig:empty::after, .entry:focus-within button.sig:empty::after { color: var(--line); }
+.entry.important .text { font-weight: 600; }
+.entry.done.important .text { font-weight: 400; }
+.event .bullet { cursor: default; }
+.note .bullet { cursor: pointer; }
+.note-open { text-align: left; color: var(--fg); }
+.note-open:hover { text-decoration: underline; }
+.note-snippet { color: var(--muted); font-size: .9rem; overflow-wrap: anywhere; }
+.view-title { margin: 16px 0; }
+.hint { font-size: .8rem; color: var(--muted); align-self: center; margin-left: 4px; }
+.group.month { font-size: .95rem; color: var(--fg); font-weight: 600; text-transform: none; margin: 22px 0 4px 6px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.group.month .count { font-weight: 400; }
+.index-list { list-style: none; margin: 0; padding: 0; }
+.index-list button { padding: 6px; width: 100%; text-align: left; border-radius: 6px; }
+.index-list button:hover { background: var(--hover); }
+.link-inline { color: var(--accent); text-decoration: underline; }
+.date-pick { font: inherit; font-size: .78rem; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; }
+.entry.note .note-open { color: var(--fg); }
+@media (max-width: 520px) {
+  .nav-signout { display: none; }   /* no celular: "Sair" fica na página conta */
+  nav button { padding: 4px 6px; }
 }

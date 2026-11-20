@@ -4,36 +4,33 @@ Notas rápidas + bullet journal. Simples, rápido, privado.
 
 ## Como usar
 
-Escolha o tipo nos botões abaixo da entrada (**• Tarefa · ○ Evento · – Nota · 📝 Notas**, ou `Alt+1…4`), digite e aperte **Enter**.
-O botão **📝 Notas** (ou `#nota` em qualquer lugar) manda o texto direto para o caderno de Notas: o que vem antes do primeiro `:` vira o título (`Reunião com X: decidimos adiar` → título "Reunião com X").
-
-Ao digitar `#`, aparecem sugestões das suas tags (`Tab` escolhe). Na **Busca** vazia, a lista de todas as tags com contagem.
-Para mudar o tipo de uma entrada já anotada (ou movê-la para Notas), use o menu de tipo na linha (no celular: toque na entrada).
-
-A sintaxe digitada continua valendo e tem prioridade sobre o botão:
+Escolha o tipo nos botões abaixo da entrada (**• Tarefa · ○ Evento · – Nota**, ou `Alt+1…3`), digite e aperte **Enter**.
 
 | Você digita | Vira |
 |---|---|
 | `comprar pão` | • tarefa |
-| `- ideia solta` | – nota |
 | `o dentista 14h` | ○ evento |
-| `#casa` | tag (clique para filtrar) |
-| `!` `!!` `!!!` | prioridade |
-| `@amanhã` `@sex` `@25/12` `@2026-12-25` | anota em outro dia |
-| `#nota` | vai para o caderno de Notas |
+| `- Reunião com X: decidimos adiar` | – nota → vai para o caderno de **Notas** (título "Reunião com X") e aparece no dia |
+| `* pagar imposto` | `*` importante (também: clique na margem à esquerda do bullet) |
+| `#casa` | tag / coleção (`#nota` = vira Nota) |
+| `@amanhã` `@sex` `@25/12` | anota em outro dia |
+| `@dez` `@março` `@12/2027` | **Future Log**: agendado só para o mês, sem dia |
 
-- Clique no `•` para concluir (`×`). Dê dois cliques no texto para editar.
-- **→ hoje / → amanhã**: migração estilo bullet journal. O original vira `>` e uma cópia vai para o novo dia.
-- Tarefas abertas de dias anteriores aparecem num aviso em "hoje", com um botão para migrar todas.
+### Bullets e sinalizadores
+`•` tarefa · `×` feita · `>` migrada (outro dia) · `<` agendada (foi para o Futuro) · `○` evento · `–` nota · `*` importante
 
-### Notas
-Aba **Notas**: um caderno para textos que não são tarefas (atas de reunião, coisas que você viu e quer lembrar).
-- Título + texto livre, **salva sozinho** enquanto você digita.
-- `#tags` em qualquer lugar do texto; links `https://…` ficam clicáveis abaixo da nota.
-- **fixar** mantém a nota no topo. Notas vazias são descartadas.
-- A **Busca** procura em notas e no diário ao mesmo tempo.
+- Clique no `•` para concluir. Dois cliques no texto para editar.
+- **→ hoje / → amanhã / agendar ▸** (dia ou mês): a original fica `>` (ou `<` se foi para um mês futuro) e uma cópia vai para o destino.
+- Tarefas abertas de dias (ou meses) anteriores aparecem num aviso em "hoje", com um botão para migrar todas.
 
-**Atalhos:** `n` nova anotação no dia · `/` focar entrada · `[` `]` dia anterior/próximo · `t` hoje · `p` pendentes · `a` notas · `s` busca
+### Abas
+- **Dia**: o daily log (tarefas, eventos e as notas anotadas naquele dia).
+- **Futuro**: o Future Log, por mês. Sem `@data`, o que você digita ali vai para o próximo mês.
+- **Pendentes**: todas as tarefas abertas.
+- **Notas**: o caderno. Título + texto, salva sozinho, `#tags`, links clicáveis, fixar.
+- **Índice**: busca em tudo + coleções (tags) + notas fixadas + resumo do futuro.
+
+**Atalhos:** `n` nova anotação · `/` focar entrada · `[` `]` dia anterior/próximo · `t` hoje · `f` futuro · `p` pendentes · `a` notas · `i` índice
 
 ## Stack (tudo grátis)
 
@@ -50,7 +47,7 @@ Aba **Notas**: um caderno para textos que não são tarefas (atas de reunião, c
 
 ### 1. Supabase
 1. Crie um projeto em https://supabase.com (plano Free).
-2. **SQL Editor** → cole e rode `supabase/schema.sql`. (Projeto já existente? Rode só os arquivos novos: `002_mfa.sql`, `003_notes.sql`.)
+2. **SQL Editor** → cole e rode `supabase/schema.sql`. (Projeto já existente? Rode só os arquivos novos, em ordem: `002_mfa.sql`, `003_notes.sql`, `004_bujo.sql`.)
 3. **Authentication → Users → Add user → Send invitation** com seu e-mail.
 4. **Authentication → Sign In / Providers**: desative *Allow new users to sign up*.
 5. **Authentication → URL Configuration**: em *Site URL*, coloque a URL do Cloudflare Pages (ex.: `https://tomenota.pages.dev`). Adicione `http://localhost:5173` em *Redirect URLs* para desenvolvimento.
