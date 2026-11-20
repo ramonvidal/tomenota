@@ -50,6 +50,22 @@ function parseDate(token, baseDay) {
   return null;
 }
 
+const TAG_RE = /(^|\s)#([\p{L}\p{N}_-]+)/gu;
+
+// Tags (#algo) em qualquer lugar de um texto livre, normalizadas (minúsculas, sem acento).
+export function extractTags(text) {
+  const tags = new Set();
+  for (const m of text.matchAll(TAG_RE)) tags.add(strip(m[2]));
+  return [...tags].slice(0, 50);
+}
+
+// Links http(s) em um texto livre.
+export function extractLinks(text) {
+  const links = new Set();
+  for (const m of text.matchAll(/https?:\/\/[^\s<>"']+/g)) links.add(m[0].replace(/[).,;:!?]+$/, ''));
+  return [...links];
+}
+
 export function parseEntry(raw, baseDay) {
   let text = raw.trim();
   let kind = 'task';

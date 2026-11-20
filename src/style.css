@@ -118,3 +118,43 @@ nav .logout + button { font-size: .85em; color: var(--muted); padding: 4px 6px; 
 .login button.link, .card > button.link, .stack button.link {
   background: none; color: var(--muted); padding: 0; font-weight: 400; text-decoration: underline; font-size: .9rem; align-self: flex-start;
 }
+
+/* ---------- Notas ---------- */
+.notes-head { display: flex; align-items: center; justify-content: space-between; margin: 16px 0; }
+button.primary { padding: 8px 14px; border-radius: 8px; background: var(--fg); color: var(--bg); font-weight: 600; font-size: .9rem; }
+.notes { list-style: none; margin: 0; padding: 0; }
+.note-row { border-bottom: 1px solid var(--line); }
+.note-link { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; width: 100%; text-align: left; padding: 12px 6px; border-radius: 6px; }
+.note-link:hover { background: var(--hover); }
+.note-row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-row-meta { font-size: .8rem; color: var(--muted); }
+.note-row-snippet { grid-column: 1 / -1; font-size: .9rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pin { font-size: .8em; }
+
+.note-bar { display: flex; align-items: center; gap: 10px; margin: 12px 0 8px; }
+.note-bar .spacer { flex: 1; }
+.back { color: var(--muted); padding: 4px 8px 4px 0; }
+.back:hover { color: var(--fg); }
+.chip { font-size: .8rem; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+.chip:hover, .chip.on { color: var(--fg); border-color: var(--muted); }
+.chip.danger:hover { color: var(--accent); border-color: var(--accent); }
+.small { font-size: .8rem; }
+.status { min-width: 70px; text-align: right; }
+
+.note-title { width: 100%; border: 0; background: transparent; outline: none; font-size: 1.6rem; font-weight: 700; letter-spacing: -.02em; padding: 8px 0; }
+.note-body { font: inherit; width: 100%; border: 0; background: transparent; outline: none; resize: none; line-height: 1.65; min-height: 40vh; padding: 4px 0; overflow: hidden; }
+.note-meta { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+.note-meta .tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.links { display: flex; flex-direction: column; gap: 4px; }
+.links a { color: var(--accent); text-decoration: none; font-size: .9rem; overflow-wrap: anywhere; }
+.links a:hover { text-decoration: underline; }
+h3.section { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 20px 0 6px; font-weight: 600; }
+
+/* Telas pequenas: cabeçalho compacto */
+@media (max-width: 520px) {
+  header { gap: 8px; padding: 12px 12px 0; flex-wrap: wrap; }
+  .logo { display: none; }
+  nav { gap: 0; }
+  nav button { padding: 4px 7px; font-size: .92rem; }
+  main { padding: 12px 14px 80px; }
+}

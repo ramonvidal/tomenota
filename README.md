@@ -19,7 +19,14 @@ Digite e aperte **Enter**. A sintaxe é opcional:
 - **→ hoje / → amanhã**: migração estilo bullet journal. O original vira `>` e uma cópia vai para o novo dia.
 - Tarefas abertas de dias anteriores aparecem num aviso em "hoje", com um botão para migrar todas.
 
-**Atalhos:** `n` nova nota · `/` focar entrada · `[` `]` dia anterior/próximo · `t` hoje · `p` pendentes · `s` busca
+### Notas
+Aba **Notas**: um caderno para textos que não são tarefas (atas de reunião, coisas que você viu e quer lembrar).
+- Título + texto livre, **salva sozinho** enquanto você digita.
+- `#tags` em qualquer lugar do texto; links `https://…` ficam clicáveis abaixo da nota.
+- **fixar** mantém a nota no topo. Notas vazias são descartadas.
+- A **Busca** procura em notas e no diário ao mesmo tempo.
+
+**Atalhos:** `n` nova anotação no dia · `/` focar entrada · `[` `]` dia anterior/próximo · `t` hoje · `p` pendentes · `a` notas · `s` busca
 
 ## Stack (tudo grátis)
 
@@ -36,7 +43,7 @@ Digite e aperte **Enter**. A sintaxe é opcional:
 
 ### 1. Supabase
 1. Crie um projeto em https://supabase.com (plano Free).
-2. **SQL Editor** → cole e rode `supabase/schema.sql`. (Projeto já existente? Rode só `supabase/002_mfa.sql`.)
+2. **SQL Editor** → cole e rode `supabase/schema.sql`. (Projeto já existente? Rode só os arquivos novos: `002_mfa.sql`, `003_notes.sql`.)
 3. **Authentication → Users → Add user → Send invitation** com seu e-mail.
 4. **Authentication → Sign In / Providers**: desative *Allow new users to sign up*.
 5. **Authentication → URL Configuration**: em *Site URL*, coloque a URL do Cloudflare Pages (ex.: `https://tomenota.pages.dev`). Adicione `http://localhost:5173` em *Redirect URLs* para desenvolvimento.

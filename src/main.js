@@ -1,6 +1,7 @@
 import './style.css';
 import { createClient } from '@supabase/supabase-js';
 import { parseEntry, isoDay, addDays, fromIso } from './parse.js';
+import { createNotes } from './notes.js';
 
 // Aceita também a URL copiada com /rest/v1/ ou / no final: usa só https://xxxx.supabase.co
 const SB_URL = (() => {
@@ -39,7 +40,11 @@ const state = {
   session: null,
   stage: 'loading',     // loading | login | mfa | recovery | app
   recovery: false,
-  view: 'day',          // day | open | search | account
+  view: 'day',          // day | open | notes | search | account
+  notes: null,
+  noteOpen: false,
+  noteFilter: '',
+  searchNotes: [],
   factors: null,
   enroll: null,
   day: isoDay(),
@@ -82,12 +87,22 @@ function check({ error }) {
   if (error) { toast(error.message); throw error; }
 }
 
+const notes = createNotes({
+  sb, h, toast, check, state,
+  render: () => render(),
+  openTag: (t) => { state.tag = t; state.query = ''; go('search'); },
+});
+
 // ---------- Dados ----------
 async function load() {
   if (state.view === 'account') {
     const { data, error } = await sb.auth.mfa.listFactors();
     if (error) toast(error.message);
     state.factors = data || { all: [], totp: [] };
+    return render();
+  }
+  if (state.view === 'notes') {
+    if (!state.noteOpen) await notes.loadList();
     return render();
   }
   state.busy = true;
@@ -99,7 +114,8 @@ async function load() {
     if (state.tag) q = q.contains('tags', [state.tag]);
   } else {
     const term = state.query.trim();
-    if (!term && !state.tag) { state.entries = []; state.busy = false; return render(); }
+    if (!term && !state.tag) { state.entries = []; state.searchNotes = []; state.busy = false; return render(); }
+    state.searchNotes = await notes.search(term, state.tag);
     if (term) q = q.ilike('text', `%${term.replace(/[%_\\]/g, (c) => '\\' + c)}%`);
     if (state.tag) q = q.contains('tags', [state.tag]);
     q = q.order('day', { ascending: false }).limit(200);
@@ -202,7 +218,8 @@ function entryRow(e, showDay) {
   );
 }
 
-function go(view, day) {
+async function go(view, day) {
+  if (state.noteOpen) { await notes.close(); }
   state.view = view;
   if (day) state.day = day;
   if (view !== 'search') state.tag = view === 'open' ? state.tag : null;
@@ -396,7 +413,7 @@ function render() {
   if (state.stage === 'recovery') return renderRecovery();
 
   const nav = h('nav', {},
-    ...[['day', 'Dia'], ['open', 'Pendentes'], ['search', 'Busca']].map(([v, label]) =>
+    ...[['day', 'Dia'], ['open', 'Pendentes'], ['notes', 'Notas'], ['search', 'Busca']].map(([v, label]) =>
       h('button', { class: state.view === v ? 'on' : '', onclick: () => go(v, v === 'day' ? state.day : null) }, label)),
     h('button', { class: 'logout' + (state.view === 'account' ? ' on' : ''), title: state.session.user.email, onclick: () => go('account') }, 'conta'),
     h('button', { title: 'Sair deste dispositivo', onclick: () => sb.auth.signOut({ scope: 'local' }) }, 'sair'),
@@ -460,12 +477,20 @@ function render() {
     });
     main.append(input);
     if (state.tag) main.append(h('p', {}, h('button', { class: 'tag', onclick: () => { state.tag = null; load(); } }, `#${state.tag} ✕`)));
+    if (state.searchNotes.length) {
+      main.append(h('h3', { class: 'section' }, 'Notas'), h('ul', { class: 'notes' }, state.searchNotes.map(notes.noteRow)));
+    }
+    if (state.entries.length && state.searchNotes.length) main.append(h('h3', { class: 'section' }, 'Diário'));
     main.append(h('ul', { class: 'entries' }, state.entries.map((e) => entryRow(e, true))));
+    if ((state.query.trim() || state.tag) && !state.entries.length && !state.searchNotes.length && !state.busy) {
+      main.append(h('p', { class: 'empty' }, 'Nada encontrado.'));
+    }
     queueMicrotask(() => {
       if (document.activeElement?.id !== 'quick') { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
     });
   }
 
+  if (state.view === 'notes') notes.renderView(main);
   if (state.view === 'account') renderAccount(main);
 
   app.replaceChildren(h('header', {}, h('span', { class: 'logo' }, 'tomenota'), nav), main);
@@ -482,13 +507,20 @@ document.addEventListener('keydown', (ev) => {
   else if (k === 't') go('day', isoDay());
   else if (k === 'p') go('open');
   else if (k === 's') { ev.preventDefault(); go('search'); }
+  else if (k === 'a') go('notes');
 });
+
+// Não perder o que foi digitado numa nota ao fechar/trocar de aba.
+window.addEventListener('beforeunload', (ev) => {
+  if (notes.hasPending()) { notes.flush(); ev.preventDefault(); ev.returnValue = ''; }
+});
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') notes.flush(); });
 
 // ---------- Boot ----------
 // Não chamar o Supabase direto dentro do callback (pode travar): agenda com setTimeout.
 sb.auth.onAuthStateChange((event, session) => {
   state.session = session;
   if (event === 'PASSWORD_RECOVERY') state.recovery = true;
-  if (event === 'SIGNED_OUT') { state.recovery = false; state.view = 'day'; state.enroll = null; }
+  if (event === 'SIGNED_OUT') { state.recovery = false; state.view = 'day'; state.enroll = null; state.noteOpen = false; state.notes = null; }
   setTimeout(refreshAuth);
 });
