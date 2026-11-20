@@ -26,7 +26,8 @@ Digite e aperte **Enter**. A sintaxe é opcional:
 - **Frontend:** Vite + JS puro (sem framework). Hospedado no **Cloudflare Pages** (grátis, funciona com repo privado).
 - **Backend:** **Supabase** (Postgres + Auth). O plano gratuito é suficiente para uso pessoal.
 - **Segurança:**
-  - Login por link mágico no e-mail (sem senha para vazar), com fluxo PKCE.
+  - Login com e-mail + senha e **2FA opcional** (código de app autenticador), na página **conta**.
+  - Com 2FA ativo, o próprio banco recusa sessões que não digitaram o código (`supabase/002_mfa.sql`).
   - **Row Level Security** no Postgres: cada linha pertence a um `user_id` e o banco só devolve as linhas do usuário logado. A `anon key` no frontend é pública por design; sem login ela não acessa nada.
   - Cadastro público desligado: só você entra.
   - CSP e headers de segurança em `public/_headers`.
@@ -35,7 +36,7 @@ Digite e aperte **Enter**. A sintaxe é opcional:
 
 ### 1. Supabase
 1. Crie um projeto em https://supabase.com (plano Free).
-2. **SQL Editor** → cole e rode `supabase/schema.sql`.
+2. **SQL Editor** → cole e rode `supabase/schema.sql`. (Projeto já existente? Rode só `supabase/002_mfa.sql`.)
 3. **Authentication → Users → Add user → Send invitation** com seu e-mail.
 4. **Authentication → Sign In / Providers**: desative *Allow new users to sign up*.
 5. **Authentication → URL Configuration**: em *Site URL*, coloque a URL do Cloudflare Pages (ex.: `https://tomenota.pages.dev`). Adicione `http://localhost:5173` em *Redirect URLs* para desenvolvimento.

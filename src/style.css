@@ -99,3 +99,22 @@ main > h2 { margin: 16px 0; }
 .fatal { max-width: 640px; margin: 15vh auto 0; padding: 0 20px; }
 .fatal h1 { font-size: 1.3rem; color: var(--accent); }
 .fatal pre { white-space: pre-wrap; background: var(--hover); padding: 14px; border-radius: 8px; font-size: .9rem; }
+
+.login form, .stack { display: flex; flex-direction: column; gap: 10px; }
+.login h2 { margin: 0; }
+.stack input, .code { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; }
+.code { letter-spacing: .3em; font-size: 1.2rem; text-align: center; }
+.stack button, .card > button { padding: 10px; border-radius: 8px; background: var(--fg); color: var(--bg); font-weight: 600; }
+.stack button:disabled, .card > button:disabled { opacity: .5; }
+button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+button.link { color: var(--muted); text-decoration: underline; font-size: .9rem; align-self: flex-start; }
+.card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 16px 0; display: flex; flex-direction: column; gap: 10px; }
+.card h3 { margin: 0; font-size: 1rem; }
+.card p, .card ol { margin: 0; }
+.card ol { padding-left: 20px; }
+.qr { background: #fff; padding: 8px; border-radius: 8px; align-self: flex-start; }
+code { font-family: ui-monospace, monospace; word-break: break-all; }
+nav .logout + button { font-size: .85em; color: var(--muted); padding: 4px 6px; }
+.login button.link, .card > button.link, .stack button.link {
+  background: none; color: var(--muted); padding: 0; font-weight: 400; text-decoration: underline; font-size: .9rem; align-self: flex-start;
+}

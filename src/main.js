@@ -37,7 +37,11 @@ const sb = createClient(SB_URL, SB_KEY, {
 const app = document.getElementById('app');
 const state = {
   session: null,
-  view: 'day',          // day | open | search
+  stage: 'loading',     // loading | login | mfa | recovery | app
+  recovery: false,
+  view: 'day',          // day | open | search | account
+  factors: null,
+  enroll: null,
   day: isoDay(),
   entries: [],
   overdue: 0,
@@ -80,6 +84,12 @@ function check({ error }) {
 
 // ---------- Dados ----------
 async function load() {
+  if (state.view === 'account') {
+    const { data, error } = await sb.auth.mfa.listFactors();
+    if (error) toast(error.message);
+    state.factors = data || { all: [], totp: [] };
+    return render();
+  }
   state.busy = true;
   let q = sb.from('entries').select('*');
   if (state.view === 'day') {
@@ -200,38 +210,196 @@ function go(view, day) {
   load();
 }
 
+// ---------- Autenticação ----------
+function authCard(title, msg, ...fields) {
+  return h('div', { class: 'login' }, h('h1', {}, 'tomenota'), title ? h('h2', {}, title) : null, msg, ...fields);
+}
+
+async function busyBtn(btn, fn) {
+  btn.disabled = true;
+  try { await fn(); } finally { btn.disabled = false; }
+}
+
 function renderLogin() {
-  let sent = false;
-  const msg = h('p', { class: 'muted' }, 'Entre com seu e-mail. Enviaremos um link de acesso (sem senha).');
-  const email = h('input', { type: 'email', required: true, placeholder: 'voce@exemplo.com', autocomplete: 'email' });
-  const btn = h('button', { type: 'submit' }, 'Enviar link');
+  const msg = h('p', { class: 'muted' }, 'Entre com seu e-mail e senha.');
+  const email = h('input', { type: 'email', required: true, placeholder: 'e-mail', autocomplete: 'username', name: 'email' });
+  const pass = h('input', { type: 'password', required: true, placeholder: 'senha', autocomplete: 'current-password', name: 'password' });
+  const btn = h('button', { type: 'submit' }, 'Entrar');
+  const forgot = h('button', {
+    type: 'button', class: 'link',
+    onclick: () => busyBtn(forgot, async () => {
+      if (!email.value.trim()) { msg.textContent = 'Digite seu e-mail acima e clique de novo em "Esqueci a senha".'; email.focus(); return; }
+      const { error } = await sb.auth.resetPasswordForEmail(email.value.trim(), { redirectTo: location.origin + location.pathname });
+      msg.textContent = error ? 'Erro: ' + error.message : 'Se o e-mail existir, enviamos um link para criar uma nova senha.';
+    }),
+  }, 'Esqueci a senha');
   const form = h('form', {
-    class: 'login',
-    onsubmit: async (ev) => {
+    onsubmit: (ev) => {
       ev.preventDefault();
-      if (sent) return;
-      btn.disabled = true;
-      const { error } = await sb.auth.signInWithOtp({
-        email: email.value.trim(),
-        options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname },
+      busyBtn(btn, async () => {
+        const { error } = await sb.auth.signInWithPassword({ email: email.value.trim(), password: pass.value });
+        if (error) { msg.textContent = error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : 'Erro: ' + error.message; pass.select(); }
       });
-      btn.disabled = false;
-      if (error) { msg.textContent = 'Não foi possível enviar: ' + error.message; return; }
-      sent = true;
-      msg.textContent = 'Pronto! Confira seu e-mail e clique no link.';
     },
-  }, h('h1', {}, 'tomenota'), msg, email, btn);
-  app.replaceChildren(form);
+  }, email, pass, btn);
+  app.replaceChildren(authCard(null, msg, form, forgot));
   email.focus();
 }
 
+function codeInput() {
+  return h('input', {
+    inputmode: 'numeric', autocomplete: 'one-time-code', pattern: '[0-9]{6}', maxlength: 6,
+    required: true, placeholder: '123456', class: 'code',
+  });
+}
+
+function renderMfa() {
+  const msg = h('p', { class: 'muted' }, 'Digite o código de 6 dígitos do seu app autenticador.');
+  const code = codeInput();
+  const btn = h('button', { type: 'submit' }, 'Verificar');
+  const form = h('form', {
+    onsubmit: (ev) => {
+      ev.preventDefault();
+      busyBtn(btn, async () => {
+        const { data } = await sb.auth.mfa.listFactors();
+        const factor = data?.totp?.[0];
+        if (!factor) { msg.textContent = 'Nenhum autenticador encontrado.'; return; }
+        const { error } = await sb.auth.mfa.challengeAndVerify({ factorId: factor.id, code: code.value.trim() });
+        if (error) { msg.textContent = 'Código inválido. Tente de novo.'; code.select(); return; }
+        refreshAuth();
+      });
+    },
+  }, code, btn);
+  app.replaceChildren(authCard('Verificação em 2 etapas', msg, form,
+    h('button', { class: 'link', onclick: () => sb.auth.signOut({ scope: 'local' }) }, 'Cancelar e sair')));
+  code.focus();
+}
+
+function passwordForm(onDone) {
+  const p1 = h('input', { type: 'password', required: true, minlength: 10, placeholder: 'nova senha (mín. 10 caracteres)', autocomplete: 'new-password' });
+  const p2 = h('input', { type: 'password', required: true, minlength: 10, placeholder: 'repita a nova senha', autocomplete: 'new-password' });
+  const btn = h('button', { type: 'submit' }, 'Salvar senha');
+  return h('form', {
+    class: 'stack',
+    onsubmit: (ev) => {
+      ev.preventDefault();
+      if (p1.value !== p2.value) { toast('As senhas não são iguais.'); p2.select(); return; }
+      busyBtn(btn, async () => {
+        const { error } = await sb.auth.updateUser({ password: p1.value });
+        if (error) { toast('Erro: ' + error.message); return; }
+        p1.value = p2.value = '';
+        toast('Senha salva.');
+        onDone?.();
+      });
+    },
+  }, p1, p2, btn);
+}
+
+function renderRecovery() {
+  app.replaceChildren(authCard('Criar nova senha', h('p', { class: 'muted' }, 'Escolha uma senha nova para sua conta.'),
+    passwordForm(() => { state.recovery = false; refreshAuth(); })));
+}
+
+async function refreshAuth() {
+  let stage;
+  if (!state.session) stage = 'login';
+  else {
+    const { data } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (data && data.nextLevel === 'aal2' && data.currentLevel !== 'aal2') stage = 'mfa';
+    else if (state.recovery) stage = 'recovery';
+    else stage = 'app';
+  }
+  if (stage === state.stage) return;
+  state.stage = stage;
+  if (stage === 'app') load(); else render();
+}
+
+// ---------- Conta ----------
+function decodeURIComponentSafe(t) { try { return decodeURIComponent(t); } catch { return t; } }
+
+function renderAccount(main) {
+  main.append(h('h2', {}, 'conta'), h('p', { class: 'muted' }, state.session.user.email));
+  if (!state.factors) return;
+
+  main.append(h('section', { class: 'card' }, h('h3', {}, 'Senha'), passwordForm()));
+
+  const mfa = h('section', { class: 'card' }, h('h3', {}, 'Verificação em 2 etapas (2FA)'));
+  const verified = state.factors.totp?.[0];
+  if (state.enroll) {
+    const code = codeInput();
+    const btn = h('button', { type: 'submit' }, 'Confirmar');
+    // O Supabase devolve "data:image/svg+xml;utf-8,<svg…>" sem codificar; re-codifica para o navegador aceitar.
+    let svg = state.enroll.qr;
+    while (svg.startsWith('data:')) svg = decodeURIComponentSafe(svg.slice(svg.indexOf(',') + 1));
+    const qr = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    mfa.append(
+      h('ol', {},
+        h('li', {}, 'Abra um app autenticador (Google Authenticator, Microsoft Authenticator, 1Password, Authy…).'),
+        h('li', {}, 'Escaneie o QR code abaixo. Se não der, digite a chave manualmente.'),
+        h('li', {}, 'Digite o código de 6 dígitos que aparecer no app.')),
+      h('img', { class: 'qr', src: qr, alt: 'QR code do 2FA', width: 180, height: 180 }),
+      h('p', { class: 'muted' }, 'Chave: ', h('code', {}, state.enroll.secret)),
+      h('form', {
+        class: 'stack',
+        onsubmit: (ev) => {
+          ev.preventDefault();
+          busyBtn(btn, async () => {
+            const { error } = await sb.auth.mfa.challengeAndVerify({ factorId: state.enroll.id, code: code.value.trim() });
+            if (error) { toast('Código inválido. Tente de novo.'); code.select(); return; }
+            state.enroll = null;
+            toast('2FA ativado! A partir de agora o código será pedido ao entrar.');
+            load();
+          });
+        },
+      }, code, btn),
+      h('button', { class: 'link', onclick: async () => { await sb.auth.mfa.unenroll({ factorId: state.enroll.id }); state.enroll = null; load(); } }, 'Cancelar'),
+    );
+    queueMicrotask(() => code.focus());
+  } else if (verified) {
+    mfa.append(
+      h('p', {}, '✓ Ativado. Ao entrar em um dispositivo novo, o código do app será pedido.'),
+      h('button', {
+        class: 'secondary',
+        onclick: async () => {
+          if (!confirm('Desativar o 2FA? Sua conta ficará protegida só pela senha.')) return;
+          const { error } = await sb.auth.mfa.unenroll({ factorId: verified.id });
+          if (error) return toast('Erro: ' + error.message);
+          await sb.auth.refreshSession();
+          toast('2FA desativado.');
+          load();
+        },
+      }, 'Desativar 2FA'),
+    );
+  } else {
+    const btn = h('button', {
+      onclick: () => busyBtn(btn, async () => {
+        for (const f of state.factors.all || []) if (f.status !== 'verified') await sb.auth.mfa.unenroll({ factorId: f.id });
+        const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'tomenota', issuer: 'tomenota' });
+        if (error) return toast('Erro: ' + error.message);
+        state.enroll = { id: data.id, qr: data.totp.qr_code, secret: data.totp.secret };
+        render();
+      }),
+    }, 'Ativar 2FA');
+    mfa.append(h('p', {}, 'Desativado. Recomendado: além da senha, pede um código do seu celular ao entrar.'), btn);
+  }
+  main.append(mfa);
+
+  main.append(h('section', { class: 'card' }, h('h3', {}, 'Sessões'),
+    h('p', { class: 'muted' }, 'Perdeu o celular ou entrou em um computador de outra pessoa? Saia de todos os dispositivos.'),
+    h('button', { class: 'secondary', onclick: () => confirm('Sair de todos os dispositivos, inclusive este?') && sb.auth.signOut({ scope: 'global' }) }, 'Sair de todos os dispositivos')));
+}
+
 function render() {
-  if (!state.session) return renderLogin();
+  if (state.stage === 'loading') return;
+  if (state.stage === 'login') return renderLogin();
+  if (state.stage === 'mfa') return renderMfa();
+  if (state.stage === 'recovery') return renderRecovery();
 
   const nav = h('nav', {},
     ...[['day', 'Dia'], ['open', 'Pendentes'], ['search', 'Busca']].map(([v, label]) =>
       h('button', { class: state.view === v ? 'on' : '', onclick: () => go(v, v === 'day' ? state.day : null) }, label)),
-    h('button', { class: 'logout', title: state.session.user.email, onclick: () => sb.auth.signOut() }, 'sair'),
+    h('button', { class: 'logout' + (state.view === 'account' ? ' on' : ''), title: state.session.user.email, onclick: () => go('account') }, 'conta'),
+    h('button', { title: 'Sair deste dispositivo', onclick: () => sb.auth.signOut({ scope: 'local' }) }, 'sair'),
   );
 
   const main = h('main', {});
@@ -298,12 +466,14 @@ function render() {
     });
   }
 
+  if (state.view === 'account') renderAccount(main);
+
   app.replaceChildren(h('header', {}, h('span', { class: 'logo' }, 'tomenota'), nav), main);
 }
 
 // ---------- Atalhos ----------
 document.addEventListener('keydown', (ev) => {
-  if (!state.session || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  if (state.stage !== 'app' || ev.metaKey || ev.ctrlKey || ev.altKey) return;
   if (/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName)) return;
   const k = ev.key;
   if (k === '/' || k === 'n') { ev.preventDefault(); if (state.view !== 'day' && k === 'n') go('day'); setTimeout(() => document.getElementById('quick')?.focus()); }
@@ -315,10 +485,10 @@ document.addEventListener('keydown', (ev) => {
 });
 
 // ---------- Boot ----------
-let booted = false;
-sb.auth.onAuthStateChange((_event, session) => {
-  const changed = !booted || !!session !== !!state.session;
-  booted = true;
+// Não chamar o Supabase direto dentro do callback (pode travar): agenda com setTimeout.
+sb.auth.onAuthStateChange((event, session) => {
   state.session = session;
-  if (changed) setTimeout(() => (session ? load() : render()));
+  if (event === 'PASSWORD_RECOVERY') state.recovery = true;
+  if (event === 'SIGNED_OUT') { state.recovery = false; state.view = 'day'; state.enroll = null; }
+  setTimeout(refreshAuth);
 });
