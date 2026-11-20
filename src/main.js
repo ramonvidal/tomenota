@@ -19,7 +19,7 @@ function fatal(title, detail) {
   box.append(h, p);
   document.getElementById('app').replaceChildren(box);
 }
-window.addEventListener('error', (e) => e.error?.message !== 'missing config' && fatal('Erro', String(e.error?.stack || e.message)));
+window.addEventListener('error', (e) => !['missing config', 'framed'].includes(e.error?.message) && fatal('Erro', String(e.error?.stack || e.message)));
 window.addEventListener('unhandledrejection', (e) => fatal('Erro', String(e.reason?.stack || e.reason?.message || e.reason)));
 
 if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(SB_URL) || !SB_KEY) {
@@ -36,6 +36,12 @@ const sb = createClient(SB_URL, SB_KEY, {
 });
 
 const app = document.getElementById('app');
+
+// Não rodar dentro de iframe de outro site (proteção contra clickjacking; o GitHub Pages não deixa mandar header para isso).
+if (window.top !== window.self) {
+  app.textContent = 'Abra o tomenota diretamente: ' + location.href;
+  throw new Error('framed');
+}
 const state = {
   session: null,
   stage: 'loading',     // loading | login | mfa | recovery | app
