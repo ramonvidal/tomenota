@@ -650,21 +650,27 @@ function quickInput(main, extraHint) {
 const capitalize = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
 // Ordem do Dia: importantes (*) primeiro; depois agrupado por #tag (grupos e itens em ordem
-// alfabética, sem tag por último); notas no fim, em ordem alfabética.
+// alfabética, sem tag por último; em cada grupo, as fechadas vão para o fim); notas no fim.
 const byText = (a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base', numeric: true });
 const groupTag = (e) => [...e.tags].sort(byText)[0] || null;
 
-function sortByTagThenText(list, text) {
+// Dentro de cada grupo: abertas primeiro; fechadas (× feitas, > migradas, < agendadas) no fim.
+const isClosed = (e) => e.status && e.status !== 'open';
+
+function sortByTagThenText(list, text, closedLast = false) {
   return [...list].sort((a, b) => {
+    // closedLast: o bloco inteiro é um grupo só (importantes) → fechadas no fim do bloco.
+    if (closedLast && isClosed(a) !== isClosed(b)) return isClosed(a) ? 1 : -1;
     const ta = groupTag(a), tb = groupTag(b);
     if (ta !== tb) return ta == null ? 1 : tb == null ? -1 : byText(ta, tb);
+    if (isClosed(a) !== isClosed(b)) return isClosed(a) ? 1 : -1;
     return byText(text(a), text(b));
   });
 }
 
 function dayRows() {
   const rows = [];
-  const important = sortByTagThenText(state.entries.filter((e) => e.priority > 0), (e) => e.text);
+  const important = sortByTagThenText(state.entries.filter((e) => e.priority > 0), (e) => e.text, true);
   const rest = sortByTagThenText(state.entries.filter((e) => !e.priority), (e) => e.text);
   rows.push(...important.map((e) => entryRow(e)));
 
