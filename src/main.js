@@ -2,7 +2,11 @@ import './style.css';
 import { createClient } from '@supabase/supabase-js';
 import { parseEntry, isoDay, addDays, fromIso } from './parse.js';
 
-const SB_URL = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+// Aceita também a URL copiada com /rest/v1/ ou / no final: usa só https://xxxx.supabase.co
+const SB_URL = (() => {
+  const raw = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+  try { return new URL(raw).origin; } catch { return raw; }
+})();
 const SB_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
 // Se algo der errado, mostra o erro na tela em vez de uma página em branco.
