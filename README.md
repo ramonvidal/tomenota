@@ -11,7 +11,7 @@ Escolha o tipo nos botões abaixo da entrada (**• Tarefa · ○ Evento · – 
 | `comprar pão` | • tarefa |
 | `o dentista 14h` | ○ evento |
 | `- Reunião com X: decidimos adiar` | – nota → vai para o caderno de **Notas** (título "Reunião com X") e aparece no dia |
-| `* pagar imposto` | `*` importante (também: clique na margem à esquerda do bullet) |
+| `* pagar imposto` | `*` importante. Depois de criada: ação **"* importante"** na linha (no celular, toque na entrada), clique na margem à esquerda, ou edite começando com `* ` |
 | `#casa` | tag / coleção (`#nota` = vira Nota) |
 | `@amanhã` `@sex` `@25/12` | anota em outro dia |
 | `@dez` `@março` `@12/2027` | **Future Log**: agendado só para o mês, sem dia |

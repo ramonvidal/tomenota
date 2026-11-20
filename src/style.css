@@ -161,7 +161,7 @@ h3.section { font-size: .8rem; color: var(--muted); text-transform: uppercase; l
 .kind.on { color: var(--bg); background: var(--fg); border-color: var(--fg); }
 .kind-icon { font-weight: 700; }
 
-.kind-select { font: inherit; font-size: .78rem; color: var(--muted); background: transparent; border: 0; padding: 0; cursor: pointer; max-width: 9.5em; }
+.kind-select { field-sizing: content; font: inherit; font-size: .78rem; color: var(--muted); background: transparent; border: 0; padding: 0; cursor: pointer; max-width: 9.5em; -webkit-appearance: none; appearance: none; }
 .kind-select:hover, .kind-select:focus { color: var(--fg); }
 
 .suggest { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 12px; }
@@ -189,9 +189,11 @@ h3.section { font-size: .8rem; color: var(--muted); text-transform: uppercase; l
 
 /* ---------- Bullet journal: sinalizador "*", notas no dia, futuro, índice ---------- */
 .entry { gap: 6px; }
-.sig { width: 14px; flex: none; text-align: center; color: var(--accent); font-weight: 800; font-size: 1.15rem; line-height: 1; opacity: 1; }
+.sig { width: 18px; margin-left: -4px; flex: none; text-align: center; color: var(--accent); font-weight: 800; font-size: 1.15rem; line-height: 1; padding: 2px 0; border-radius: 4px; }
 .sig:empty::after { content: "*"; color: transparent; }
-.entry:hover button.sig:empty::after, .entry:focus-within button.sig:empty::after { color: var(--line); }
+.entry:hover button.sig:empty::after, .entry:focus-within button.sig:empty::after { color: var(--muted); opacity: .45; }
+button.sig:hover { background: var(--line); }
+.star-action { color: var(--accent); }
 .entry.important .text { font-weight: 600; }
 .entry.done.important .text { font-weight: 400; }
 .event .bullet { cursor: default; }
@@ -212,4 +214,14 @@ h3.section { font-size: .8rem; color: var(--muted); text-transform: uppercase; l
 @media (max-width: 520px) {
   .nav-signout { display: none; }   /* no celular: "Sair" fica na página conta */
   nav button { padding: 4px 6px; }
+}
+
+.actions > * { white-space: nowrap; }
+@media (max-width: 520px) {
+  .entry .actions { flex-wrap: wrap; gap: 10px 18px; }
+  .kind-select { font-size: .85rem; max-width: 7em; field-sizing: content; text-overflow: ellipsis; }
+}
+@media (max-width: 360px) {
+  nav button { padding: 4px 4px; font-size: .85rem; }
+  header { gap: 4px; }
 }

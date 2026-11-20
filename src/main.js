@@ -284,7 +284,7 @@ function kindSelect(e) {
   const sel = h('select', {
     class: 'kind-select', title: 'Mudar tipo',
     onchange: (ev) => changeKind(e, ev.target.value),
-  }, KINDS.map((k) => h('option', { value: k.kind }, `${k.icon} ${k.label.toLowerCase()}`)));
+  }, KINDS.map((k) => h('option', { value: k.kind }, `${k.icon} ${k.label.toLowerCase()} ▾`)));
   sel.value = e.kind;
   return sel;
 }
@@ -338,9 +338,18 @@ function entryRow(e, mode) {
   let body;
   if (state.editing === e.id) {
     const input = h('input', {
-      class: 'edit', value: e.text, maxlength: 2000,
+      class: 'edit', value: e.text, maxlength: 2000, title: 'Enter salva · comece com "* " para marcar como importante',
       onkeydown: (ev) => {
-        if (ev.key === 'Enter') { state.editing = null; const t = ev.target.value.trim(); t && t !== e.text ? update(e.id, { text: t }) : render(); }
+        if (ev.key === 'Enter') {
+          state.editing = null;
+          let t = ev.target.value.trim();
+          const star = /^\*\s+/.test(t);            // "* texto" ao editar = marcar como importante
+          if (star) t = t.replace(/^\*\s+/, '');
+          const patch = {};
+          if (t && t !== e.text) patch.text = t;
+          if (star && !e.priority) patch.priority = 1;
+          Object.keys(patch).length ? update(e.id, patch) : render();
+        }
         if (ev.key === 'Escape') { state.editing = null; render(); }
       },
       onblur: () => { if (state.editing === e.id) { state.editing = null; render(); } },
@@ -372,6 +381,10 @@ function entryRow(e, mode) {
       e.kind === 'task' && open && (e.month_only || e.day !== tomorrow)
         ? h('button', { title: 'Migrar para amanhã', onclick: () => migrate([e], tomorrow) }, '→ amanhã') : null,
       open ? scheduleSelect(e) : null,
+      h('button', {
+        class: 'star-action', title: e.priority ? 'Tirar a marca de importante' : 'Marcar como importante',
+        onclick: () => update(e.id, { priority: e.priority ? 0 : 1 }),
+      }, e.priority ? 'tirar *' : '* importante'),
       kindSelect(e),
       h('button', { title: 'Editar', onclick: () => { state.editing = e.id; render(); } }, 'editar'),
       h('button', { title: 'Apagar', class: 'danger', onclick: () => confirm('Apagar?') && remove(e.id) }, 'apagar'),
