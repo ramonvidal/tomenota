@@ -6,10 +6,18 @@
   --accent: #e0603c;
   --hover: #f1ede4;
   font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color-scheme: light dark;
+  color-scheme: light;
+}
+/* Tema escuro = preto (ótimo em telas OLED). Vale quando escolhido, ou no "Automático" com o sistema escuro. */
+:root[data-theme="dark"] {
+  --bg: #000; --fg: #ececea; --muted: #8e8e89; --line: #262626; --accent: #ef6c47; --hover: #141414;
+  color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #171614; --fg: #ebe7df; --muted: #8d877c; --line: #2c2a26; --hover: #22201d; }
+  :root:not([data-theme="light"]) {
+    --bg: #000; --fg: #ececea; --muted: #8e8e89; --line: #262626; --accent: #ef6c47; --hover: #141414;
+    color-scheme: dark;
+  }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); }
@@ -227,3 +235,5 @@ button.sig:hover { background: var(--line); }
 }
 .group.tag-group { margin: 14px 0 2px 44px; font-size: .78rem; text-transform: none; }
 .group.tag-group .tag { font-size: .78rem; }
+
+.theme-choice { margin: 0; }

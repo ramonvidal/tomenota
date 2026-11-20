@@ -1,4 +1,4 @@
-# tomenota
+# Tome Nota!
 
 Notas rápidas + bullet journal. Simples, rápido, privado.
 
@@ -22,6 +22,9 @@ Escolha o tipo nos botões abaixo da entrada (**• Tarefa · ○ Evento · – 
 - Clique no `•` para concluir. Dois cliques no texto para editar.
 - **→ hoje / → amanhã / agendar ▸** (dia ou mês): a original fica `>` (ou `<` se foi para um mês futuro) e uma cópia vai para o destino.
 - Tarefas abertas de dias (ou meses) anteriores aparecem num aviso em "hoje", com um botão para migrar todas.
+
+### Aparência
+Em **conta → Aparência**: **Automático** (segue o modo claro/escuro do aparelho), **Claro** ou **Preto** (fundo preto puro, bom para telas OLED). Fica salvo em cada navegador.
 
 ### Abas
 - **Dia**: o daily log. Ordem: importantes (`*`) primeiro, depois agrupado por #tag em ordem alfabética (sem tag por último), notas no fim.

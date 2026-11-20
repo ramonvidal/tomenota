@@ -36,11 +36,29 @@ const sb = createClient(SB_URL, SB_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce' },
 });
 
+// ---------- Tema: automático (segue o sistema) | claro | escuro (preto) ----------
+const THEME_KEY = 'tomenota-theme';
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+function applyTheme(theme = localStorage.getItem(THEME_KEY) || 'auto') {
+  const root = document.documentElement;
+  if (theme === 'light' || theme === 'dark') root.dataset.theme = theme;
+  else delete root.dataset.theme;
+  // Cor da barra do navegador/celular acompanha o fundo.
+  const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg);
+}
+function setTheme(theme) {
+  if (theme === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, theme);
+  applyTheme(theme);
+}
+applyTheme();
+darkQuery.addEventListener('change', () => applyTheme());
+
 const app = document.getElementById('app');
 
 // Não rodar dentro de iframe de outro site (proteção contra clickjacking; o GitHub Pages não deixa mandar header para isso).
 if (window.top !== window.self) {
-  app.textContent = 'Abra o tomenota diretamente: ' + location.href;
+  app.textContent = 'Abra o Tome Nota! diretamente: ' + location.href;
   throw new Error('framed');
 }
 const state = {
@@ -437,7 +455,7 @@ function setKind(kind, input) {
 
 // ---------- Autenticação ----------
 function authCard(title, msg, ...fields) {
-  return h('div', { class: 'login' }, h('h1', {}, 'tomenota'), title ? h('h2', {}, title) : null, msg, ...fields);
+  return h('div', { class: 'login' }, h('h1', {}, 'Tome Nota!'), title ? h('h2', {}, title) : null, msg, ...fields);
 }
 
 async function busyBtn(btn, fn) {
@@ -549,6 +567,15 @@ function renderAccount(main) {
   main.append(h('h2', {}, 'conta'), h('p', { class: 'muted' }, state.session.user.email));
   if (!state.factors) return;
 
+  const current = localStorage.getItem(THEME_KEY) || 'auto';
+  main.append(h('section', { class: 'card' }, h('h3', {}, 'Aparência'),
+    h('div', { class: 'kinds theme-choice', role: 'radiogroup', 'aria-label': 'Tema' },
+      [['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Preto']].map(([v, label]) => h('button', {
+        type: 'button', role: 'radio', 'aria-checked': String(v === current), class: 'kind' + (v === current ? ' on' : ''),
+        onclick: () => { setTheme(v); render(); },
+      }, label))),
+    h('p', { class: 'muted small' }, 'Automático segue o modo claro/escuro do seu aparelho. Fica salvo neste navegador.')));
+
   main.append(h('section', { class: 'card' }, h('h3', {}, 'Senha'), passwordForm()));
 
   const mfa = h('section', { class: 'card' }, h('h3', {}, 'Verificação em 2 etapas (2FA)'));
@@ -602,7 +629,7 @@ function renderAccount(main) {
     const btn = h('button', {
       onclick: () => busyBtn(btn, async () => {
         for (const f of state.factors.all || []) if (f.status !== 'verified') await sb.auth.mfa.unenroll({ factorId: f.id });
-        const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'tomenota', issuer: 'tomenota' });
+        const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Tome Nota!', issuer: 'Tome Nota!' });
         if (error) return toast('Erro: ' + error.message);
         state.enroll = { id: data.id, qr: data.totp.qr_code, secret: data.totp.secret };
         render();
@@ -810,7 +837,7 @@ function render() {
   if (state.view === 'notes') notes.renderView(main);
   if (state.view === 'account') renderAccount(main);
 
-  app.replaceChildren(h('header', {}, h('span', { class: 'logo' }, 'tomenota'), nav), main);
+  app.replaceChildren(h('header', {}, h('span', { class: 'logo' }, 'Tome Nota!'), nav), main);
 }
 
 // ---------- Atalhos ----------

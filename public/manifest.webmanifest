@@ -1,6 +1,6 @@
 {
-  "name": "tomenota",
-  "short_name": "tomenota",
+  "name": "Tome Nota!",
+  "short_name": "Tome Nota!",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#faf8f3",
