@@ -25,8 +25,10 @@ create policy "own rows" on public.entries
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
--- Ninguém anônimo acessa nada.
+-- Ninguém anônimo acessa nada; usuários logados podem usar a tabela
+-- (e o RLS acima garante que cada um só vê as próprias linhas).
 revoke all on public.entries from anon;
+grant select, insert, update, delete on public.entries to authenticated;
 
 create or replace function public.touch_updated_at() returns trigger
 language plpgsql set search_path = '' as $$
