@@ -138,15 +138,49 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
     );
   }
 
+  // Filtro por tag na aba Notas: '' = todas, '__none__' = sem tag, ou o nome da tag.
+  const NO_TAG = '__none__';
+  const byText = (a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base', numeric: true });
+
   function renderList(main) {
     const listEl = h('ul', { class: 'notes' });
     const empty = h('p', { class: 'empty' });
-    const fill = () => {
+    const tagBar = h('div', { class: 'note-tags', role: 'toolbar', 'aria-label': 'Filtrar por tag' });
+
+    // Lista automática de tags, montada a partir das notas (mais usadas primeiro).
+    const counts = new Map();
+    let untagged = 0;
+    for (const n of state.notes || []) {
+      if (!n.tags.length) untagged++;
+      for (const t of n.tags) counts.set(t, (counts.get(t) || 0) + 1);
+    }
+    const allTags = [...counts].sort((a, b) => b[1] - a[1] || byText(a[0], b[0]));
+    if (state.noteTag && state.noteTag !== NO_TAG && !counts.has(state.noteTag)) state.noteTag = '';  // tag sumiu
+
+    const matches = (n) => {
       const f = (state.noteFilter || '').trim().toLowerCase();
-      const shown = (state.notes || []).filter((n) => !f || (n.title + '\n' + n.body).toLowerCase().includes(f));
+      const t = state.noteTag || '';
+      if (t === NO_TAG ? n.tags.length : t && !n.tags.includes(t)) return false;
+      return !f || (n.title + '\n' + n.body).toLowerCase().includes(f);
+    };
+
+    const chip = (value, label, count, plain = false) => h('button', {
+      type: 'button', class: 'kind' + (plain ? ' plain' : '') + ((state.noteTag || '') === value ? ' on' : ''),
+      'aria-pressed': String((state.noteTag || '') === value),
+      onclick: () => { state.noteTag = (state.noteTag || '') === value ? '' : value; fill(); },
+    }, label, count != null ? h('span', { class: 'count' }, count) : null);
+
+    const fill = () => {
+      tagBar.replaceChildren(
+        chip('', 'todas', (state.notes || []).length, true),
+        ...allTags.map(([t, n]) => chip(t, '#' + t, n)),
+        untagged && allTags.length ? chip(NO_TAG, 'sem tag', untagged, true) : null,
+      );
+      tagBar.hidden = !allTags.length;
+      const shown = (state.notes || []).filter(matches);
       listEl.replaceChildren(...shown.map(noteRow));
       empty.hidden = shown.length > 0 || !state.notes;
-      empty.textContent = f ? 'Nenhuma nota encontrada.' : 'Nenhuma nota ainda. Crie a primeira.';
+      empty.textContent = state.noteFilter?.trim() || state.noteTag ? 'Nenhuma nota encontrada.' : 'Nenhuma nota ainda. Crie a primeira.';
     };
 
     main.append(
@@ -158,6 +192,7 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
         id: 'quick', class: 'quick', type: 'search', placeholder: 'Filtrar notas…', value: state.noteFilter || '',
         oninput: (ev) => { state.noteFilter = ev.target.value; fill(); },
       }),
+      tagBar,
     );
     main.append(listEl, empty);
     fill();

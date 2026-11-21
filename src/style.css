@@ -288,3 +288,11 @@ h3.section { font-size: .75rem; color: var(--muted); text-transform: uppercase; 
   .group.tag-group { margin-left: 34px; }
   .menu-kinds .kind, .menu-months .kind { padding: 8px 14px; font-size: .95rem; }
 }
+
+/* Aba Notas: lista automática de tags para filtrar */
+.note-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.note-tags[hidden] { display: none; }
+.note-tags .kind { color: var(--accent); }
+.note-tags .kind.plain { color: var(--muted); }
+.note-tags .kind.on { color: var(--bg); }
+.note-tags .kind.on .count { color: var(--bg); opacity: .7; }
