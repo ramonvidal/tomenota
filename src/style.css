@@ -296,3 +296,19 @@ h3.section { font-size: .75rem; color: var(--muted); text-transform: uppercase; 
 .note-tags .kind.plain { color: var(--muted); }
 .note-tags .kind.on { color: var(--bg); }
 .note-tags .kind.on .count { color: var(--bg); opacity: .7; }
+
+/* ---------- Índice: cabeçalho / Exportar ---------- */
+.index-head { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 14px; }
+.select { font: inherit; font-size: .9rem; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--fg); max-width: 100%; }
+.export-custom { display: flex; gap: 12px; flex-wrap: wrap; font-size: .9rem; color: var(--muted); }
+.export-custom[hidden] { display: none; }
+.export-custom label { display: flex; align-items: center; gap: 6px; }
+.export-summary { font-size: .9rem; margin: 4px 0 10px; }
+.export-actions { display: flex; gap: 10px; }
+.secondary-btn { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); font-weight: 600; font-size: .9rem; }
+.secondary-btn:hover { border-color: var(--muted); }
+.export-actions button:disabled { opacity: .45; cursor: default; }
+.export-preview {
+  white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; line-height: 1.5; max-height: 50vh; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin: 0;
+}

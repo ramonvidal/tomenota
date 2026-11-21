@@ -4,6 +4,7 @@ import { parseEntry, splitTitle, isoDay, addDays, fromIso, firstOfMonth, nextWor
 import { createCalendar, lowerSaxonyHolidays, WEEKDAY_NAMES } from './calendar.js';
 import { createTags } from './tags.js';
 import { createMenu } from './menu.js';
+import { createExport } from './export.js';
 import { createNotes } from './notes.js';
 
 // Aceita também a URL copiada com /rest/v1/ ou / no final: usa só https://xxxx.supabase.co
@@ -67,7 +68,7 @@ const state = {
   session: null,
   stage: 'loading',     // loading | login | mfa | recovery | app
   recovery: false,
-  view: 'day',          // day | future | open | notes | search (Índice) | account
+  view: 'day',          // day | future | open | notes | search (Índice) | export | account
   dayNotes: [],
   pinnedNotes: [],
   futureSummary: [],
@@ -122,6 +123,7 @@ function check({ error }) {
 
 const tags = createTags({ sb, h });
 const menu = createMenu(h);
+const exporter = createExport({ sb, h, check, toast, tags });
 const cal = createCalendar({ sb, check, state });
 
 const notes = createNotes({
@@ -163,6 +165,7 @@ async function load() {
     state.factors = data || { all: [], totp: [] };
     return render();
   }
+  if (state.view === 'export') return render();   // a tela de exportar busca os próprios dados
   if (state.view === 'notes') {
     if (!state.noteOpen) await notes.loadList();
     if (stale()) return;
@@ -913,7 +916,12 @@ function render() {
     main.append(state.entries.length ? list : h('p', { class: 'empty' }, state.busy ? '' : 'Nada pendente. 🎉'));
   }
 
+  if (state.view === 'export') exporter.render(main, () => go('search'));
+
   if (state.view === 'search') {
+    main.append(h('div', { class: 'index-head' },
+      h('h2', {}, 'índice'),
+      h('button', { class: 'primary', title: 'Exportar notas e tarefas em Markdown', onclick: () => go('export') }, 'Exportar ↓')));
     let timer;
     const input = h('input', {
       id: 'quick', class: 'quick', type: 'search', placeholder: 'Buscar em tudo…', value: state.query,

@@ -23,6 +23,9 @@ Escolha o tipo nos botões abaixo da entrada (**• Tarefa · ○ Evento · – 
 - Menu **⋯** de cada linha (no celular, sobe da parte de baixo): **→ hoje**, **→ amanhã** (próximo dia útil), **Agendar…** (um dia ou um mês), importante, tipo, editar, apagar. A original fica `>` (ou `<` se foi para um mês futuro) e uma cópia vai para o destino.
 - Tarefas abertas de dias (ou meses) anteriores aparecem num aviso em "hoje", com um botão para migrar todas.
 
+### Exportar (para guardar ou usar com o Claude)
+**Índice → Exportar ↓**: escolha o conteúdo (notas e/ou tarefas e eventos), uma tag e o período (tudo, 7 dias, 30 dias, este mês, este ano ou personalizado). **Baixar .md** gera um arquivo Markdown; **Copiar** põe o mesmo texto na área de transferência, pronto para colar numa conversa com o Claude ou subir num Projeto no claude.ai. Tarefas migradas (`>`) e agendadas (`<`) ficam de fora para não duplicar.
+
 ### Dias úteis
 "Amanhã" (`@amanhã` e o botão **→ amanhã**) vai sempre para o **próximo dia útil**. Em **conta → Dias úteis** você escolhe os dias da semana úteis (padrão: seg–sex) e adiciona os feriados oficiais da **Baixa Saxônia (Niedersachsen)** do ano. No topo de cada dia: **marcar como dia não útil** (com nome, ex.: "férias") ou **tornar dia útil** (ex.: um sábado de trabalho). Datas explícitas (`@sáb`, `@25/12`) valem como escritas.
 
