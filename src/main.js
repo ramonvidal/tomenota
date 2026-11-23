@@ -1,6 +1,6 @@
 import './style.css';
 import { createClient } from '@supabase/supabase-js';
-import { parseEntry, splitTitle, isoDay, addDays, fromIso, firstOfMonth, nextWorkday, NOTE_TAG } from './parse.js';
+import { parseEntry, splitTitle, isoDay, addDays, fromIso, firstOfMonth, nextWorkday, extractTags, NOTE_TAG } from './parse.js';
 import { createCalendar, lowerSaxonyHolidays, WEEKDAY_NAMES } from './calendar.js';
 import { createTags } from './tags.js';
 import { createMenu } from './menu.js';
@@ -540,16 +540,23 @@ function entryRow(e, mode, opts = {}) {
 
   let body;
   if (state.editing === e.id) {
+    // O campo mostra as tags atuais no fim ("pagar luz #casa"): dá para acrescentar ou apagar tags.
+    const current = [e.text, ...e.tags.map((t) => '#' + t)].join(' ');
     const input = h('input', {
-      class: 'edit', value: e.text, maxlength: 2000, title: 'Enter salva · comece com "* " para marcar como importante',
+      class: 'edit', value: current, maxlength: 2000,
+      title: 'Enter salva · #tag acrescenta/remove tags · comece com "* " para marcar como importante',
       onkeydown: (ev) => {
         if (ev.key === 'Enter') {
           state.editing = null;
           let t = ev.target.value.trim();
           const star = /^\*\s+/.test(t);            // "* texto" ao editar = marcar como importante
           if (star) t = t.replace(/^\*\s+/, '');
+          // As #tags escritas viram as tags da tarefa; o texto fica sem elas.
+          const newTags = extractTags(t).filter((x) => x !== NOTE_TAG);
+          t = t.replace(/(^|\s)#[\p{L}\p{N}_-]+/gu, ' ').replace(/\s+/g, ' ').trim();
           const patch = {};
           if (t && t !== e.text) patch.text = t;
+          if (t && newTags.join(' ') !== e.tags.join(' ')) patch.tags = newTags;
           if (star && !e.priority) patch.priority = 1;
           Object.keys(patch).length ? update(e.id, patch) : render();
         }
@@ -557,8 +564,8 @@ function entryRow(e, mode, opts = {}) {
       },
       onblur: () => { if (state.editing === e.id) { state.editing = null; render(); } },
     });
-    queueMicrotask(() => { input.focus(); input.select(); });
-    body = input;
+    queueMicrotask(() => { input.focus(); input.setSelectionRange(input.value.length, input.value.length); });
+    body = [input, tags.attach(input)];
   } else {
     body = h('span', { class: 'text', ondblclick: () => { state.editing = e.id; render(); } }, e.text);
   }
