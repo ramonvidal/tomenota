@@ -180,3 +180,13 @@ end $$;
 drop trigger if exists entries_check_note on public.entries;
 create trigger entries_check_note before insert or update of note_id on public.entries
   for each row execute function public.entries_check_note();
+
+-- Fazendo agora (mesmo conteúdo de 007_doing.sql)
+alter table public.entries add column if not exists started_at timestamptz;
+
+alter table public.entries drop constraint if exists entries_status_check;
+alter table public.entries add constraint entries_status_check
+  check (status in ('open','done','migrated','cancelled','scheduled','doing'));
+
+-- O próprio banco garante: no máximo uma tarefa "fazendo" por usuário.
+create unique index if not exists entries_one_doing on public.entries (user_id) where status = 'doing';

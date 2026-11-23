@@ -93,7 +93,7 @@ export function createExport({ sb, h, check, toast, tags }) {
     L.push('# Tome Nota! — exportação', '');
     L.push(`Exportado em ${fmtDate(isoDay())}. Filtros: ${filtersLine()}.`, '');
     if (opt.entries) {
-      L.push('Legenda: `[ ]` tarefa aberta · `[x]` feita · `○` evento · `◉` evento que aconteceu · **(importante)** = marcado com *', '');
+      L.push('Legenda: `[ ]` tarefa aberta · `[/]` fazendo agora · `[x]` feita · `○` evento · `◉` evento que aconteceu · **(importante)** = marcado com *', '');
     }
 
     if (opt.notes) {
@@ -116,7 +116,7 @@ export function createExport({ sb, h, check, toast, tags }) {
       for (const e of data.entries) {
         const g = e.month_only ? `### ${fmtMonth(e.day)} (sem dia definido)` : `### ${fmtLongDay(e.day)}`;
         if (g !== group) { if (group) L.push(''); L.push(g); group = g; }
-        const box = e.kind === 'event' ? (e.status === 'done' ? '◉' : '○') : e.status === 'done' ? '[x]' : '[ ]';
+        const box = e.kind === 'event' ? (e.status === 'done' ? '◉' : '○') : e.status === 'done' ? '[x]' : e.status === 'doing' ? '[/]' : '[ ]';
         const note = e.note_id ? `→ nota: “${(data.titles.get(e.note_id) || 'sem título').trim()}”` : '';
         const extra = [e.priority ? '**(importante)**' : '', ...e.tags.map((t) => '#' + t), note].filter(Boolean).join(' ');
         L.push(`- ${box} ${e.text}${extra ? ' ' + extra : ''}`);

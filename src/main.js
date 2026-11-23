@@ -70,6 +70,7 @@ const state = {
   recovery: false,
   view: 'day',          // day | future | open | notes | search (Índice) | export | account
   dayNotes: [],
+  doing: null,          // tarefa "fazendo agora" (bullet /)
   pinnedNotes: [],
   futureSummary: [],
   kind: 'task',         // tipo escolhido nos botões: task | event | note
@@ -156,6 +157,7 @@ async function fetchFuture() {
 let loadSeq = 0;
 
 async function load() {
+  refreshDoing();
   const seq = ++loadSeq;
   const stale = () => seq !== loadSeq;
   if (state.view === 'account') {
@@ -200,7 +202,7 @@ async function load() {
     if (stale()) return;
     state.entries = future;
   } else if (state.view === 'open') {
-    let q = sb.from('entries').select('*').eq('kind', 'task').eq('status', 'open')
+    let q = sb.from('entries').select('*').eq('kind', 'task').in('status', ['open', 'doing'])
       .order('day').order('month_only', { ascending: false }).order('priority', { ascending: false }).order('created_at');
     if (state.tag) q = q.contains('tags', [state.tag]);
     const res = await q; check(res);
@@ -322,6 +324,70 @@ const KINDS = [
   { kind: 'note', icon: '–', label: 'Nota', placeholder: 'Nota (vai para Notas)…   Título: texto · #tag' },
 ];
 
+// ---------- Fazendo agora (bullet "/") ----------
+// Uma tarefa por vez: começar outra pausa a atual (o banco também garante isso).
+async function refreshDoing() {
+  const res = await sb.from('entries').select('*').eq('status', 'doing').limit(1);
+  const next = res.error ? null : res.data[0] || null;
+  if ((next?.id || null) !== (state.doing?.id || null) || next?.text !== state.doing?.text) {
+    state.doing = next;
+    paintNowBar();
+  }
+}
+
+function doingError(err) {
+  toast(/started_at|entries_status_check|doing/.test(err.message)
+    ? 'Rode o supabase/007_doing.sql no Supabase para usar "fazendo agora".' : err.message);
+}
+
+async function startDoing(e) {
+  const r1 = await sb.from('entries').update({ status: 'open', started_at: null }).eq('status', 'doing');
+  if (r1.error) return doingError(r1.error);
+  const r2 = await sb.from('entries').update({ status: 'doing', started_at: new Date().toISOString() }).eq('id', e.id);
+  if (r2.error) return doingError(r2.error);
+  await load();
+}
+
+async function stopDoing(e, done) {
+  check(await sb.from('entries').update({ status: done ? 'done' : 'open', started_at: null }).eq('id', e.id));
+  if (state.doing?.id === e.id) { state.doing = null; paintNowBar(); }
+  await load();
+}
+
+function elapsed(iso) {
+  const min = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if (min < 1) return 'agora mesmo';
+  if (min < 60) return `há ${min} min`;
+  const hrs = Math.floor(min / 60), rest = min % 60;
+  if (hrs < 24) return `há ${hrs} h${rest ? ' ' + rest + ' min' : ''}`;
+  return `desde ${fmtShort(isoDay(new Date(iso)))}`;
+}
+
+// Faixa "Agora: …" no topo de todas as abas.
+function nowBar() {
+  const e = state.doing;
+  if (!e) return h('div', { class: 'nowbar-slot' });
+  return h('div', { class: 'nowbar-slot' }, h('div', { class: 'nowbar', role: 'status' },
+    h('span', { class: 'nowbar-label' }, 'Agora'),
+    h('button', {
+      class: 'nowbar-task', title: 'Ir para o dia desta tarefa',
+      onclick: () => (e.month_only ? go('future') : go('day', e.day)),
+    }, h('span', { class: 'nowbar-bullet' }, '/'), e.text),
+    e.started_at ? h('span', { class: 'nowbar-time' }, elapsed(e.started_at)) : null,
+    h('span', { class: 'nowbar-actions' },
+      h('button', { class: 'nowbar-done', title: 'Concluir', onclick: () => stopDoing(e, true) }, '✓ concluir'),
+      h('button', { title: 'Pausar (volta para •)', onclick: () => stopDoing(e, false) }, 'pausar'))));
+}
+
+function paintNowBar() {
+  const slot = document.querySelector('.nowbar-slot');
+  if (slot) slot.replaceWith(nowBar());
+}
+setInterval(() => {
+  const t = document.querySelector('.nowbar-time');
+  if (t && state.doing?.started_at) t.textContent = elapsed(state.doing.started_at);
+}, 30000);
+
 // ---------- Nota de detalhes ligada a uma tarefa ----------
 // Abre a nota e faz o "‹ voltar" do editor retornar para a tela atual (ex.: o Dia).
 function openLinkedNote(noteId, extra = {}) {
@@ -370,7 +436,7 @@ function pickNote(api, e, back) {
 
 // Menu "⋯" de uma tarefa/evento.
 function entryMenu(e, anchor) {
-  const open = e.status === 'open';
+  const open = e.status === 'open' || e.status === 'doing';
   const today = isoDay();
   const tomorrow = nextWorkday();   // "amanhã" = próximo dia útil
   const literalTomorrow = tomorrow === addDays(today, 1);
@@ -398,6 +464,10 @@ function entryMenu(e, anchor) {
   };
 
   const main = (api) => [
+    e.kind === 'task' && e.status === 'open' ? menu.item('Começar agora', () => startDoing(e), { hint: '/' }) : null,
+    e.status === 'doing' ? menu.item('Concluir', () => stopDoing(e, true), { hint: '×' }) : null,
+    e.status === 'doing' ? menu.item('Pausar', () => stopDoing(e, false), { hint: '•' }) : null,
+    e.kind === 'task' && (e.status === 'open' || e.status === 'doing') ? menu.sep() : null,
     e.kind === 'task' && open && (e.month_only || e.day !== today)
       ? menu.item('→ Hoje', () => migrate([e], today)) : null,
     e.kind === 'task' && open && (e.month_only || e.day !== tomorrow)
@@ -425,13 +495,13 @@ function entryMenu(e, anchor) {
 const moreButton = (onclick) => h('button', { class: 'more', title: 'Ações', 'aria-label': 'Ações', 'aria-haspopup': 'menu', onclick: (ev) => onclick(ev.currentTarget) }, '⋯');
 
 const BULLET = {
-  task: { open: '•', done: '×', migrated: '>', scheduled: '<', cancelled: '•' },
+  task: { open: '•', doing: '/', done: '×', migrated: '>', scheduled: '<', cancelled: '•' },
   event: { open: '○', done: '◉', migrated: '>', scheduled: '<', cancelled: '○' },
   // Notas antigas do diário (antes do 004_bujo.sql) ainda podem existir: mostra sem quebrar a tela.
   note: { open: '–', done: '–', migrated: '>', scheduled: '<', cancelled: '–' },
 };
 const bulletFor = (e) => (BULLET[e.kind] || BULLET.task)[e.status] || '•';
-const STATUS_TITLE = { migrated: 'Migrada para outro dia (>)', scheduled: 'Agendada para o futuro (<)' };
+const STATUS_TITLE = { migrated: 'Migrada para outro dia (>)', scheduled: 'Agendada para o futuro (<)', doing: 'Fazendo agora (clique para concluir)' };
 
 function dayLabel(e, mode) {
   if (!mode) return null;
@@ -444,6 +514,7 @@ function dayLabel(e, mode) {
 function entryRow(e, mode) {
   const toggle = () => {
     if (e.kind !== 'task' || e.status === 'migrated' || e.status === 'scheduled') return;
+    if (e.status === 'doing') return stopDoing(e, true);
     update(e.id, { status: e.status === 'done' ? 'open' : 'done' });
   };
 
@@ -841,7 +912,7 @@ const byText = (a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base', nume
 const groupTag = (e) => [...e.tags].sort(byText)[0] || null;
 
 // Dentro de cada grupo: abertas primeiro; fechadas (× feitas, > migradas, < agendadas) no fim.
-const isClosed = (e) => e.status && e.status !== 'open';
+const isClosed = (e) => e.status && e.status !== 'open' && e.status !== 'doing';
 
 function sortByTagThenText(list, text, closedLast = false) {
   return [...list].sort((a, b) => {
@@ -850,6 +921,7 @@ function sortByTagThenText(list, text, closedLast = false) {
     const ta = groupTag(a), tb = groupTag(b);
     if (ta !== tb) return ta == null ? 1 : tb == null ? -1 : byText(ta, tb);
     if (isClosed(a) !== isClosed(b)) return isClosed(a) ? 1 : -1;
+    if ((a.status === 'doing') !== (b.status === 'doing')) return a.status === 'doing' ? -1 : 1;
     return byText(text(a), text(b));
   });
 }
@@ -960,7 +1032,11 @@ function render() {
     let lastKey = null;
     const list = h('ul', { class: 'entries' });
     const today = isoDay();
-    for (const e of state.entries) {
+    const doingNow = state.entries.filter((e) => e.status === 'doing');
+    if (doingNow.length) {
+      list.append(h('li', { class: 'group' }, 'fazendo agora'), ...doingNow.map((e) => entryRow(e)));
+    }
+    for (const e of state.entries.filter((x) => x.status !== 'doing')) {
       const key = e.day + (e.month_only ? 'm' : '');
       if (key !== lastKey) {
         lastKey = key;
@@ -1020,6 +1096,7 @@ function render() {
   if (state.view === 'notes') notes.renderView(main);
   if (state.view === 'account') renderAccount(main);
 
+  main.prepend(nowBar());
   app.replaceChildren(h('header', {}, h('span', { class: 'logo' }, 'Tome Nota!'), nav, account), main);
 }
 

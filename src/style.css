@@ -324,3 +324,22 @@ h3.section { font-size: .75rem; color: var(--muted); text-transform: uppercase; 
 .linked-task { text-align: left; font-size: .9rem; }
 .linked-task:hover { text-decoration: underline; }
 .menu-notes { max-height: 45vh; overflow: auto; display: flex; flex-direction: column; }
+
+/* ---------- Fazendo agora (bullet "/") ---------- */
+.entry.doing { background: var(--accent-soft); }
+.entry.doing .bullet { color: var(--accent); font-size: 1.05rem; }
+.entry.doing .text { font-weight: 600; }
+.nowbar-slot:empty { display: none; }
+.nowbar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 6px 0 4px; padding: 9px 14px;
+  border: 1px solid var(--accent); border-radius: var(--radius); background: var(--accent-soft); font-size: .92rem;
+}
+.nowbar-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; }
+.nowbar-task { font-weight: 600; text-align: left; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.nowbar-task:hover { text-decoration: underline; }
+.nowbar-bullet { color: var(--accent); font-weight: 800; margin-right: 8px; }
+.nowbar-time { color: var(--muted); font-size: .82rem; white-space: nowrap; }
+.nowbar-actions { display: flex; gap: 12px; margin-left: auto; font-size: .85rem; }
+.nowbar-actions button { color: var(--muted); }
+.nowbar-actions button:hover { color: var(--fg); }
+.nowbar-actions .nowbar-done { color: var(--accent); font-weight: 700; }
