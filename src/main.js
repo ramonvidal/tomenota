@@ -183,7 +183,8 @@ async function load() {
     check(res); check(nres);
     if (stale()) return;
     state.entries = res.data;
-    state.dayNotes = nres.data;
+    const linkedIds = new Set(res.data.map((e) => e.note_id).filter(Boolean));
+    state.dayNotes = nres.data.filter((n) => !linkedIds.has(n.id));
     if (state.day === isoDay()) {
       const [o1, o2] = await Promise.all([
         sb.from('entries').select('id', { count: 'exact', head: true })
@@ -294,6 +295,7 @@ async function migrate(entries, target, monthOnly = false) {
   if (!entries.length) return;
   check(await sb.from('entries').insert(entries.map((e) => ({
     kind: e.kind, text: e.text, tags: e.tags, priority: e.priority, day: target, month_only: monthOnly,
+    ...(e.note_id ? { note_id: e.note_id } : {}),   // a nota de detalhes acompanha a tarefa
   }))));
   const status = isFutureMonth(target) ? 'scheduled' : 'migrated';
   check(await sb.from('entries').update({ status }).in('id', entries.map((e) => e.id)));
@@ -319,6 +321,52 @@ const KINDS = [
   { kind: 'event', icon: '○', label: 'Evento', placeholder: 'Novo evento…   @sex · @25/12 · #tag' },
   { kind: 'note', icon: '–', label: 'Nota', placeholder: 'Nota (vai para Notas)…   Título: texto · #tag' },
 ];
+
+// ---------- Nota de detalhes ligada a uma tarefa ----------
+// Abre a nota e faz o "‹ voltar" do editor retornar para a tela atual (ex.: o Dia).
+function openLinkedNote(noteId, extra = {}) {
+  const back = { view: state.view, day: state.day };
+  return notes.open(noteId, { returnTo: () => go(back.view, back.day), ...extra });
+}
+
+async function linkNote(e, noteId) {
+  const res = await sb.from('entries').update({ note_id: noteId }).eq('id', e.id);
+  if (res.error) {
+    // Coluna ainda não existe: falta rodar o 006_task_notes.sql.
+    toast(/note_id/.test(res.error.message) ? 'Rode o supabase/006_task_notes.sql no Supabase para ligar notas a tarefas.' : res.error.message);
+    throw res.error;
+  }
+  e.note_id = noteId;
+}
+
+async function createDetailNote(e) {
+  // Primeira linha vazia (o cursor fica nela); as tags da tarefa vão no fim.
+  const tagLine = e.tags.map((t) => '#' + t).join(' ');
+  const note = await notes.quickCreate({ title: e.text, body: tagLine ? '\n\n' + tagLine : '' });
+  try { await linkNote(e, note.id); } catch { await sb.from('notes').delete().eq('id', note.id); return; }
+  tags.refresh();
+  openLinkedNote(note.id, { caretStart: true });
+}
+
+// Submenu: escolher uma nota existente (com busca).
+function pickNote(api, e, back) {
+  const results = h('div', { class: 'menu-notes' });
+  let all = [];
+  const show = (q) => {
+    const f = q.trim().toLowerCase();
+    const list = all.filter((n) => !f || (n.title + ' ' + n.body).toLowerCase().includes(f)).slice(0, 30);
+    results.replaceChildren(...(list.length ? list.map((n) => menu.item(n.title || 'Sem título', async () => { await linkNote(e, n.id); load(); toast('Nota ligada à tarefa.'); }, {
+      hint: new Date(n.updated_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }),
+    })) : [h('div', { class: 'menu-title' }, all.length ? 'Nenhuma nota encontrada' : 'Carregando…')]));
+  };
+  const search = h('input', { type: 'search', class: 'date-pick', placeholder: 'Buscar nota…', oninput: (ev) => show(ev.target.value) });
+  api.set(menu.item('‹ voltar', () => api.set(back(api)), { keepOpen: true }), h('div', { class: 'menu-date' }, search), results);
+  show('');
+  sb.from('notes').select('id, title, body, updated_at').order('updated_at', { ascending: false }).limit(500).then((res) => {
+    if (res.error) return toast(res.error.message);
+    all = res.data; show(search.value);
+  });
+}
 
 // Menu "⋯" de uma tarefa/evento.
 function entryMenu(e, anchor) {
@@ -356,6 +404,14 @@ function entryMenu(e, anchor) {
       ? menu.item(literalTomorrow ? '→ Amanhã' : '→ Próximo dia útil', () => migrate([e], tomorrow), { hint: fmtShort(tomorrow) }) : null,
     open ? menu.item('Agendar…', () => schedule(api), { keepOpen: true, hint: 'dia ou mês' }) : null,
     menu.item(e.priority ? 'Tirar importante' : 'Marcar importante', () => update(e.id, { priority: e.priority ? 0 : 1 }), { hint: '*' }),
+    menu.sep(),
+    ...(e.note_id ? [
+      menu.item('Abrir nota de detalhes', () => openLinkedNote(e.note_id), { hint: '📄' }),
+      menu.item('Desligar nota', async () => { await linkNote(e, null); load(); toast('Nota desligada (ela continua em Notas).'); }),
+    ] : [
+      menu.item('Criar nota de detalhes', () => createDetailNote(e), { hint: '📄' }),
+      menu.item('Ligar a uma nota existente…', () => pickNote(api, e, main), { keepOpen: true }),
+    ]),
     menu.sep(),
     menu.title('Tipo'),
     kindRow(),
@@ -425,6 +481,7 @@ function entryRow(e, mode) {
     h('button', { class: 'bullet', title: STATUS_TITLE[e.status] || (e.kind === 'task' ? 'Concluir / reabrir' : 'Evento'), onclick: toggle }, bulletFor(e)),
     h('div', { class: 'body' },
       body,
+      e.note_id ? h('button', { class: 'note-chip', title: 'Abrir a nota de detalhes', onclick: () => openLinkedNote(e.note_id) }, svgIcon('notes'), 'nota') : null,
       e.tags.length ? h('span', { class: 'tags' }, e.tags.map((t) =>
         h('button', { class: 'tag', onclick: () => { state.tag = t; state.view = 'search'; state.query = ''; load(); } }, '#' + t))) : null,
       dayLabel(e, mode),

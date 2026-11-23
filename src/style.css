@@ -312,3 +312,15 @@ h3.section { font-size: .75rem; color: var(--muted); text-transform: uppercase; 
   white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; line-height: 1.5; max-height: 50vh; overflow: auto;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin: 0;
 }
+
+/* ---------- Nota de detalhes ligada a uma tarefa ---------- */
+.note-chip {
+  display: inline-flex; align-items: center; gap: 3px; font-size: .75rem; color: var(--muted);
+  padding: 1px 8px 1px 5px; border: 1px solid var(--line); border-radius: 999px; align-self: center;
+}
+.note-chip .ico { width: 13px; height: 13px; display: block; }
+.note-chip:hover { color: var(--fg); border-color: var(--muted); }
+.linked-tasks { display: flex; flex-direction: column; gap: 4px; }
+.linked-task { text-align: left; font-size: .9rem; }
+.linked-task:hover { text-decoration: underline; }
+.menu-notes { max-height: 45vh; overflow: auto; display: flex; flex-direction: column; }

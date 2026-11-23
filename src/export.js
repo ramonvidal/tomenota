@@ -67,7 +67,14 @@ export function createExport({ sb, h, check, toast, tags }) {
     const inRange = (d) => (!from || d >= from) && (!to || d <= to);
     // Ordem cronológica garantida no próprio app (dia; itens "só do mês" no início do mês; depois a hora em que foram anotados).
     entries.sort((a, b) => a.day.localeCompare(b.day) || (b.month_only - a.month_only) || a.created_at.localeCompare(b.created_at));
-    data = { notes: notes.filter((n) => inRange(noteDay(n))), entries };
+    // Títulos das notas ligadas às tarefas (mesmo as que ficaram fora do filtro de notas).
+    const titles = new Map(notes.map((n) => [n.id, n.title]));
+    const missing = [...new Set(entries.map((e) => e.note_id).filter((id) => id && !titles.has(id)))];
+    for (let i = 0; i < missing.length; i += 100) {
+      const res = await sb.from('notes').select('id, title').in('id', missing.slice(i, i + 100));
+      if (!res.error) for (const n of res.data) titles.set(n.id, n.title);
+    }
+    data = { notes: notes.filter((n) => inRange(noteDay(n))), entries, titles };
     loading = false;
     paint();
   }
@@ -95,7 +102,10 @@ export function createExport({ sb, h, check, toast, tags }) {
         L.push(`### ${n.title.trim() || 'Sem título'}`);
         const meta = [fmtDate(noteDay(n)), ...n.tags.map((t) => '#' + t)];
         if (n.pinned) meta.push('fixada');
-        L.push(`*${meta.join(' · ')}*`, '');
+        L.push(`*${meta.join(' · ')}*`);
+        const tasks = data.entries.filter((e) => e.note_id === n.id);
+        if (tasks.length) L.push(`Detalhes de: ${[...new Set(tasks.map((e) => e.text))].map((t) => '“' + t + '”').join(', ')}`);
+        L.push('');
         if (n.body.trim()) L.push(n.body.trim(), '');
       }
     }
@@ -107,7 +117,8 @@ export function createExport({ sb, h, check, toast, tags }) {
         const g = e.month_only ? `### ${fmtMonth(e.day)} (sem dia definido)` : `### ${fmtLongDay(e.day)}`;
         if (g !== group) { if (group) L.push(''); L.push(g); group = g; }
         const box = e.kind === 'event' ? (e.status === 'done' ? '◉' : '○') : e.status === 'done' ? '[x]' : '[ ]';
-        const extra = [e.priority ? '**(importante)**' : '', ...e.tags.map((t) => '#' + t)].filter(Boolean).join(' ');
+        const note = e.note_id ? `→ nota: “${(data.titles.get(e.note_id) || 'sem título').trim()}”` : '';
+        const extra = [e.priority ? '**(importante)**' : '', ...e.tags.map((t) => '#' + t), note].filter(Boolean).join(' ');
         L.push(`- ${box} ${e.text}${extra ? ' ' + extra : ''}`);
       }
       L.push('');

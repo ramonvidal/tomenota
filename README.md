@@ -23,6 +23,9 @@ Escolha o tipo nos botões abaixo da entrada (**• Tarefa · ○ Evento · – 
 - Menu **⋯** de cada linha (no celular, sobe da parte de baixo): **→ hoje**, **→ amanhã** (próximo dia útil), **Agendar…** (um dia ou um mês), importante, tipo, editar, apagar. A original fica `>` (ou `<` se foi para um mês futuro) e uma cópia vai para o destino.
 - Tarefas abertas de dias (ou meses) anteriores aparecem num aviso em "hoje", com um botão para migrar todas.
 
+### Nota de detalhes de uma tarefa
+No menu **⋯** de uma tarefa ou evento: **Criar nota de detalhes** (nasce com o texto da tarefa como título e as mesmas tags) ou **Ligar a uma nota existente…** (com busca). A linha ganha um atalho **📄 nota** que abre a nota; o **‹ voltar** do editor retorna ao dia. Dentro da nota aparece a tarefa ligada. Ao migrar (`>`) ou agendar (`<`), a nota acompanha a tarefa. Apagar a tarefa não apaga a nota; apagar a nota só desfaz a ligação.
+
 ### Exportar (para guardar ou usar com o Claude)
 **Índice → Exportar ↓**: escolha o conteúdo (notas e/ou tarefas e eventos), uma tag e o período (tudo, 7 dias, 30 dias, este mês, este ano ou personalizado). **Baixar .md** gera um arquivo Markdown; **Copiar** põe o mesmo texto na área de transferência, pronto para colar numa conversa com o Claude ou subir num Projeto no claude.ai. Tarefas migradas (`>`) e agendadas (`<`) ficam de fora para não duplicar.
 
@@ -57,7 +60,7 @@ No computador ficam no topo; no celular, embaixo, com ícones.
 
 ### 1. Supabase
 1. Crie um projeto em https://supabase.com (plano Free).
-2. **SQL Editor** → cole e rode `supabase/schema.sql`. (Projeto já existente? Rode só os arquivos novos, em ordem: `002_mfa.sql`, `003_notes.sql`, `004_bujo.sql`, `005_workdays.sql`.)
+2. **SQL Editor** → cole e rode `supabase/schema.sql`. (Projeto já existente? Rode só os arquivos novos, em ordem: `002_mfa.sql`, `003_notes.sql`, `004_bujo.sql`, `005_workdays.sql`, `006_task_notes.sql`.)
 3. **Authentication → Users → Add user → Send invitation** com seu e-mail.
 4. **Authentication → Sign In / Providers**: desative *Allow new users to sign up*.
 5. **Authentication → URL Configuration**: em *Site URL*, coloque a URL do Cloudflare Pages (ex.: `https://tomenota.pages.dev`). Adicione `http://localhost:5173` em *Redirect URLs* para desenvolvimento.

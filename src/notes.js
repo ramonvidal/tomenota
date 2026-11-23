@@ -10,6 +10,8 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
   let dirty = false;
   let chain = Promise.resolve();
   let ui = null;         // elementos do editor que atualizamos sem re-renderizar tudo
+  let returnTo = null;   // para onde o "‹ voltar" leva (ex.: o Dia de onde a nota foi aberta)
+  let linked = [];       // tarefas/eventos ligados a esta nota
 
   // ---------- Dados ----------
   async function loadList() {
@@ -41,19 +43,32 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
     return res.data;
   }
 
-  async function open(id) {
+  // opts.returnTo: função chamada pelo "‹ voltar" (sem ela, volta para a lista de Notas).
+  async function open(id, opts = {}) {
     await flush();
+    returnTo = opts.returnTo || null;
+    linked = [];
     if (id) {
-      const res = await sb.from('notes').select('*').eq('id', id).single();
+      const [res, ent] = await Promise.all([
+        sb.from('notes').select('*').eq('id', id).single(),
+        sb.from('entries').select('id, day, text, kind, status, month_only').eq('note_id', id).order('day'),
+      ]);
       check(res);
       draft = res.data;
+      // Antes do 006_task_notes.sql a coluna não existe: segue sem mostrar a tarefa.
+      // Cópias migradas (> <) ficam de fora: mostra só a versão atual de cada tarefa.
+      if (!ent.error) linked = ent.data.filter((e) => e.status !== 'migrated' && e.status !== 'scheduled');
     } else {
       draft = { id: null, title: '', body: '', pinned: false, created_at: null, updated_at: null };
     }
     state.view = 'notes';
     state.noteOpen = true;
     render();
-    queueMicrotask(() => (draft.id ? ui?.body : ui?.title)?.focus());
+    queueMicrotask(() => {
+      const el = draft.id ? ui?.body : ui?.title;
+      el?.focus();
+      if (opts.caretStart && el?.setSelectionRange) el.setSelectionRange(0, 0);
+    });
   }
 
   async function close() {
@@ -62,7 +77,7 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
     if (draft?.id && !draft.title.trim() && !draft.body.trim()) {
       await sb.from('notes').delete().eq('id', draft.id);
     }
-    draft = null; ui = null;
+    draft = null; ui = null; linked = [];
     state.noteOpen = false;
   }
 
@@ -209,6 +224,13 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
         try { const x = new URL(u); label = x.hostname.replace(/^www\./, '') + (x.pathname.length > 1 ? x.pathname : ''); } catch {}
         return h('a', { href: u, target: '_blank', rel: 'noopener noreferrer' }, '↗ ' + (label.length > 60 ? label.slice(0, 59) + '…' : label));
       })) : null,
+      linked.length ? h('div', { class: 'linked-tasks' }, linked.map((e) => h('button', {
+        class: 'linked-task', title: 'Abrir o dia desta tarefa',
+        onclick: () => !e.month_only && openDay(e.day),
+      },
+      h('span', { class: 'muted' }, e.kind === 'event' ? 'Evento: ' : 'Tarefa: '),
+      `${e.kind === 'event' ? '○' : e.status === 'done' ? '×' : '•'} ${e.text}`,
+      h('span', { class: 'muted' }, ' · ' + new Date(e.day + 'T12:00').toLocaleDateString('pt-BR', e.month_only ? { month: 'short', year: 'numeric' } : { weekday: 'short', day: '2-digit', month: '2-digit' }))))) : null,
       draft.created_at ? h('div', { class: 'muted small' }, `criada ${fmtWhen(draft.created_at)}`,
         draft.day ? [' · no diário de ', h('button', { class: 'link-inline', onclick: () => openDay(draft.day) },
           new Date(draft.day + 'T12:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }))] : null) : null,
@@ -221,7 +243,11 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
   }
 
   function renderEditor(main) {
-    const back = h('button', { class: 'back', onclick: async () => { await close(); await loadList(); render(); } }, '‹ notas');
+    const goBack = returnTo;
+    const back = h('button', {
+      class: 'back',
+      onclick: async () => { await close(); if (goBack) goBack(); else { await loadList(); render(); } },
+    }, goBack ? '‹ voltar' : '‹ notas');
     const status = h('span', { class: 'status muted small' }, draft.id ? 'salvo' : '');
     const pin = h('button', {
       class: 'chip' + (draft.pinned ? ' on' : ''),
@@ -235,8 +261,8 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
         clearTimeout(timer); dirty = false;
         await chain;
         if (draft.id) check(await sb.from('notes').delete().eq('id', draft.id));
-        draft = null; ui = null; state.noteOpen = false;
-        await loadList(); render();
+        draft = null; ui = null; linked = []; state.noteOpen = false;
+        if (goBack) goBack(); else { await loadList(); render(); }
         toast('Nota apagada.');
       },
     }, 'apagar');
