@@ -40,13 +40,12 @@ Em **conta → Aparência**: **Automático** (segue o modo claro/escuro do apare
 
 ### Abas
 No computador ficam no topo; no celular, embaixo, com ícones.
-- **Índice**: busca em tudo + coleções (tags) + notas fixadas + resumo do futuro.
-- **Dia**: o daily log, com a faixa da semana para pular de dia (hoje destacado, dias não úteis apagados). Ordem: importantes (`*`) primeiro, depois agrupado por #tag em ordem alfabética (sem tag por último), notas no fim.
+- **Índice**: busca em tudo + **Pendentes** (tarefas abertas até hoje, a em andamento primeiro, atrasadas em destaque) + coleções (tags) + notas fixadas + resumo do futuro.
+- **Dia**: o daily log, com a faixa da semana para pular de dia (hoje destacado, dias não úteis apagados). Ordem: importantes (`*`) primeiro, depois agrupado por #tag em ordem alfabética (sem tag por último; a tag do grupo não se repete em cada linha), notas no fim.
 - **Futuro**: o Future Log, por mês. Sem `@data`, o que você digita ali vai para o próximo mês.
-- **Pendentes**: todas as tarefas abertas.
 - **Notas**: o caderno. Título + texto, salva sozinho, `#tags`, links clicáveis, fixar. No topo, a lista automática de todas as tags das notas: clique numa para filtrar (de novo, ou em "todas", para limpar).
 
-**Atalhos:** `n` nova anotação · `/` focar entrada · `[` `]` dia anterior/próximo · `t` hoje · `f` futuro · `p` pendentes · `a` notas · `i` índice
+**Atalhos:** `n` nova anotação · `/` focar entrada · `[` `]` dia anterior/próximo · `t` hoje · `f` futuro · `a` notas · `i` ou `p` índice
 
 ## Stack (tudo grátis)
 

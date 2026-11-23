@@ -24,7 +24,15 @@ function fatal(title, detail) {
   document.getElementById('app').replaceChildren(box);
 }
 window.addEventListener('error', (e) => !['missing config', 'framed'].includes(e.error?.message) && fatal('Erro', String(e.error?.stack || e.message)));
-window.addEventListener('unhandledrejection', (e) => fatal('Erro', String(e.reason?.stack || e.reason?.message || e.reason)));
+window.addEventListener('unhandledrejection', (e) => {
+  // Erros do banco/login já viram aviso (toast): não derrubam a tela inteira.
+  const r = e.reason;
+  if (r && typeof r === 'object' && (r.code !== undefined || r.status !== undefined || r.details !== undefined || r.__isAuthError)) {
+    e.preventDefault();
+    return;
+  }
+  fatal('Erro', String(r?.stack || r?.message || r));
+});
 
 if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(SB_URL) || !SB_KEY) {
   fatal('Configuração faltando',
@@ -70,6 +78,7 @@ const state = {
   recovery: false,
   view: 'day',          // day | future | open | notes | search (Índice) | export | account
   dayNotes: [],
+  pending: [],          // Índice → Pendentes
   doing: null,          // tarefa "fazendo agora" (bullet /)
   pinnedNotes: [],
   futureSummary: [],
@@ -115,11 +124,29 @@ function toast(msg, action) {
   const t = h('div', { class: 'toast' }, msg,
     action ? h('button', { class: 'toast-action', onclick: () => { t.remove(); action.fn(); } }, action.label) : null);
   document.body.append(t);
-  setTimeout(() => t.remove(), action ? 6000 : 3500);
+  setTimeout(() => t.remove(), action || String(msg).length > 60 ? 7000 : 3500);
+}
+
+// Tabela/coluna que ainda não existe no banco → qual arquivo SQL falta rodar.
+const MISSING_SQL = [
+  [/calendar_days|user_settings/, '005_workdays.sql'],
+  [/note_id/, '006_task_notes.sql'],
+  [/started_at|entries_one_doing/, '007_doing.sql'],
+  [/month_only|'day' column of 'notes'|scheduled/, '004_bujo.sql'],
+  [/'public\.notes'|relation "public\.notes"/, '003_notes.sql'],
+  [/mfa_ok|schema "private"/, '002_mfa.sql'],
+];
+function friendlyError(err) {
+  const msg = String(err?.message || err);
+  if (/schema cache|does not exist|Could not find|violates check constraint/.test(msg)) {
+    const hit = MISSING_SQL.find(([re]) => re.test(msg));
+    if (hit) return `Falta rodar o supabase/${hit[1]} no Supabase (SQL Editor → New query → Run).`;
+  }
+  return msg;
 }
 
 function check({ error }) {
-  if (error) { toast(error.message); throw error; }
+  if (error) { toast(friendlyError(error)); throw error; }
 }
 
 const tags = createTags({ sb, h });
@@ -201,24 +228,24 @@ async function load() {
     const future = await fetchFuture();
     if (stale()) return;
     state.entries = future;
-  } else if (state.view === 'open') {
-    let q = sb.from('entries').select('*').eq('kind', 'task').in('status', ['open', 'doing'])
-      .order('day').order('month_only', { ascending: false }).order('priority', { ascending: false }).order('created_at');
-    if (state.tag) q = q.contains('tags', [state.tag]);
-    const res = await q; check(res);
-    if (stale()) return;
-    state.entries = res.data;
   } else {
     // Índice: busca + coleções (tags) + notas fixadas + resumo do futuro.
     const term = state.query.trim();
     if (!term && !state.tag) {
-      const [pinned, future] = await Promise.all([
+      const t = isoDay();
+      const [pinned, future, pending] = await Promise.all([
         sb.from('notes').select('*').eq('pinned', true).order('updated_at', { ascending: false }).limit(50),
         fetchFuture(),
+        sb.from('entries').select('*').eq('kind', 'task').in('status', ['open', 'doing']).lte('day', t)
+          .order('day').order('month_only', { ascending: false }).order('priority', { ascending: false }).order('created_at').limit(500),
       ]);
-      check(pinned);
+      check(pinned); check(pending);
       if (stale()) return;
       state.pinnedNotes = pinned.data;
+      // Pendentes = abertas até hoje (itens "só do mês" contam a partir do mês deles). O resto está no Futuro.
+      state.pending = pending.data.filter((e) => !e.month_only || e.day <= firstOfMonth(t))
+        // Mais antigas primeiro (no dia, itens "só do mês" antes; importantes antes).
+        .sort((a, b) => a.day.localeCompare(b.day) || (b.month_only - a.month_only) || (b.priority - a.priority) || String(a.created_at).localeCompare(String(b.created_at)));
       const months = new Map();
       for (const e of future) { const m = firstOfMonth(e.day); months.set(m, (months.get(m) || 0) + 1); }
       state.futureSummary = [...months];
@@ -511,7 +538,9 @@ function dayLabel(e, mode) {
   return h('button', { class: 'day-link', title: 'Abrir o dia', onclick: () => !e.month_only && go('day', e.day) }, label);
 }
 
-function entryRow(e, mode) {
+// opts.hideTag: tag que já aparece no título do grupo (não repete na linha).
+function entryRow(e, mode, opts = {}) {
+  const rowTags = opts.hideTag ? e.tags.filter((t) => t !== opts.hideTag) : e.tags;
   const toggle = () => {
     if (e.kind !== 'task' || e.status === 'migrated' || e.status === 'scheduled') return;
     if (e.status === 'doing') return stopDoing(e, true);
@@ -553,7 +582,7 @@ function entryRow(e, mode) {
     h('div', { class: 'body' },
       body,
       e.note_id ? h('button', { class: 'note-chip', title: 'Abrir a nota de detalhes', onclick: () => openLinkedNote(e.note_id) }, svgIcon('notes'), 'nota') : null,
-      e.tags.length ? h('span', { class: 'tags' }, e.tags.map((t) =>
+      rowTags.length ? h('span', { class: 'tags' }, rowTags.map((t) =>
         h('button', { class: 'tag', onclick: () => { state.tag = t; state.view = 'search'; state.query = ''; load(); } }, '#' + t))) : null,
       dayLabel(e, mode),
     ),
@@ -585,7 +614,7 @@ async function go(view, day) {
   const changed = view !== state.view || (day && day !== state.day);
   state.view = view;
   if (day) state.day = day;
-  if (view !== 'search') state.tag = view === 'open' ? state.tag : null;
+  if (view !== 'search') state.tag = null;
   state.editing = null;
   menu.close();
   // Troca de tela na hora (sem esperar a rede); os dados chegam logo depois.
@@ -867,12 +896,31 @@ function quickInput(main, extraHint) {
 
 const capitalize = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
+// Tarefas abertas até hoje: a em andamento primeiro, depois por dia (atrasadas em destaque).
+function pendingList(entries) {
+  const list = h('ul', { class: 'entries' });
+  const today = isoDay();
+  const doingNow = entries.filter((e) => e.status === 'doing');
+  if (doingNow.length) list.append(h('li', { class: 'group' }, 'fazendo agora'), ...doingNow.map((e) => entryRow(e)));
+  let lastKey = null;
+  for (const e of entries.filter((x) => x.status !== 'doing')) {
+    const key = e.day + (e.month_only ? 'm' : '');
+    if (key !== lastKey) {
+      lastKey = key;
+      const late = e.month_only ? e.day < firstOfMonth(today) : e.day < today;
+      const label = e.month_only ? `${monthLabel(e.day)} · sem dia` : e.day === today ? 'hoje' : fmtShort(e.day);
+      list.append(h('li', { class: 'group' + (late ? ' late' : '') }, label));
+    }
+    list.append(entryRow(e));
+  }
+  return list;
+}
+
 // Abas, na ordem do bullet journal: o Índice vem primeiro.
 const TABS = [
   ['search', 'Índice', 'index'],
   ['day', 'Dia', 'day'],
   ['future', 'Futuro', 'future'],
-  ['open', 'Pendentes', 'open'],
   ['notes', 'Notas', 'notes'],
 ];
 const ICONS = {
@@ -943,7 +991,7 @@ function dayRows() {
         : 'sem tag'));
     }
     last = g;
-    rows.push(entryRow(e));
+    rows.push(entryRow(e, undefined, { hideTag: groups.size > 1 ? g : null }));
   }
 
   if (state.dayNotes.length) {
@@ -1026,29 +1074,6 @@ function render() {
       : h('p', { class: 'empty' }, state.busy ? '' : 'Nada agendado. Use @dez, @25/12 ou "agendar ▸" numa tarefa.'));
   }
 
-  if (state.view === 'open') {
-    main.append(h('h2', { class: 'view-title' }, 'tarefas pendentes'));
-    if (state.tag) main.append(h('p', {}, h('button', { class: 'tag', onclick: () => { state.tag = null; load(); } }, `#${state.tag} ✕`)));
-    let lastKey = null;
-    const list = h('ul', { class: 'entries' });
-    const today = isoDay();
-    const doingNow = state.entries.filter((e) => e.status === 'doing');
-    if (doingNow.length) {
-      list.append(h('li', { class: 'group' }, 'fazendo agora'), ...doingNow.map((e) => entryRow(e)));
-    }
-    for (const e of state.entries.filter((x) => x.status !== 'doing')) {
-      const key = e.day + (e.month_only ? 'm' : '');
-      if (key !== lastKey) {
-        lastKey = key;
-        const late = e.month_only ? e.day < firstOfMonth(today) : e.day < today;
-        const label = e.month_only ? `${monthLabel(e.day)} · sem dia` : e.day === today ? 'hoje' : fmtShort(e.day);
-        list.append(h('li', { class: 'group' + (late ? ' late' : '') }, label));
-      }
-      list.append(entryRow(e));
-    }
-    main.append(state.entries.length ? list : h('p', { class: 'empty' }, state.busy ? '' : 'Nada pendente. 🎉'));
-  }
-
   if (state.view === 'export') exporter.render(main, () => go('search'));
 
   if (state.view === 'search') {
@@ -1071,7 +1096,9 @@ function render() {
       main.append(h('p', { class: 'empty' }, 'Nada encontrado.'));
     }
     if (!state.query.trim() && !state.tag) {
-      // Índice do bullet journal: coleções (tags), notas fixadas e o que está no futuro.
+      // Índice do bullet journal: pendentes, coleções (tags), notas fixadas e o que está no futuro.
+      main.append(h('h3', { class: 'section' }, `Pendentes${state.pending.length ? ' · ' + state.pending.length : ''}`),
+        state.pending.length ? pendingList(state.pending) : h('p', { class: 'muted' }, state.busy ? '' : 'Nada pendente até hoje. 🎉'));
       const all = tags.list();
       main.append(h('h3', { class: 'section' }, 'Coleções'),
         all.length
@@ -1109,7 +1136,7 @@ document.addEventListener('keydown', (ev) => {
   else if (k === '[') go('day', addDays(state.day, -1));
   else if (k === ']') go('day', addDays(state.day, 1));
   else if (k === 't') go('day', isoDay());
-  else if (k === 'p') go('open');
+  else if (k === 'p') go('search');
   else if (k === 's' || k === 'i') { ev.preventDefault(); go('search'); }
   else if (k === 'f') go('future');
   else if (k === 'a') go('notes');
