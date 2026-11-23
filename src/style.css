@@ -343,3 +343,8 @@ h3.section { font-size: .75rem; color: var(--muted); text-transform: uppercase; 
 .nowbar-actions button { color: var(--muted); }
 .nowbar-actions button:hover { color: var(--fg); }
 .nowbar-actions .nowbar-done { color: var(--accent); font-weight: 700; }
+
+/* ---------- Offline / sincronização ---------- */
+.sync { font-size: .75rem; color: var(--muted); white-space: nowrap; }
+.sync:empty { display: none; }
+.sync.off { color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px; }

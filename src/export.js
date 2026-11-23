@@ -16,7 +16,7 @@ const fmtLongDay = (iso) => fromIso(iso).toLocaleDateString('pt-BR', { weekday: 
 const fmtMonth = (iso) => fromIso(iso).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 const noteDay = (n) => n.day || isoDay(new Date(n.created_at));
 
-export function createExport({ sb, h, check, toast, tags }) {
+export function createExport({ store, h, toast, tags }) {
   const opt = { notes: true, entries: true, tag: '', period: 'all', from: '', to: '' };
   let data = null;        // { notes, entries } já filtrados
   let loading = false;
@@ -35,46 +35,20 @@ export function createExport({ sb, h, check, toast, tags }) {
     }
   }
 
-  // Busca tudo em páginas de 1000 (limite por requisição do Supabase).
-  async function fetchAll(build) {
-    const out = [];
-    for (let from = 0; ; from += 1000) {
-      const res = await build().range(from, from + 999);
-      check(res);
-      out.push(...res.data);
-      if (res.data.length < 1000) return out;
-    }
-  }
-
-  async function refresh() {
-    loading = true; paint();
+  // Lê da cópia local (funciona offline).
+  function refresh() {
     const [from, to] = range();
-    const [notes, entries] = await Promise.all([
-      opt.notes ? fetchAll(() => {
-        let q = sb.from('notes').select('*').order('created_at');
-        if (opt.tag) q = q.contains('tags', [opt.tag]);
-        return q;
-      }) : [],
-      opt.entries ? fetchAll(() => {
-        let q = sb.from('entries').select('*').not('status', 'in', '(migrated,scheduled)').order('day').order('created_at');
-        if (opt.tag) q = q.contains('tags', [opt.tag]);
-        if (from) q = q.gte('day', from);
-        if (to) q = q.lte('day', to);
-        return q;
-      }) : [],
-    ]);
-    // Período das notas: dia em que foram anotadas.
     const inRange = (d) => (!from || d >= from) && (!to || d <= to);
-    // Ordem cronológica garantida no próprio app (dia; itens "só do mês" no início do mês; depois a hora em que foram anotados).
-    entries.sort((a, b) => a.day.localeCompare(b.day) || (b.month_only - a.month_only) || a.created_at.localeCompare(b.created_at));
-    // Títulos das notas ligadas às tarefas (mesmo as que ficaram fora do filtro de notas).
-    const titles = new Map(notes.map((n) => [n.id, n.title]));
-    const missing = [...new Set(entries.map((e) => e.note_id).filter((id) => id && !titles.has(id)))];
-    for (let i = 0; i < missing.length; i += 100) {
-      const res = await sb.from('notes').select('id, title').in('id', missing.slice(i, i + 100));
-      if (!res.error) for (const n of res.data) titles.set(n.id, n.title);
-    }
-    data = { notes: notes.filter((n) => inRange(noteDay(n))), entries, titles };
+    const withTag = (r) => !opt.tag || r.tags.includes(opt.tag);
+    const allNotes = store.rows('notes');
+    const notes = opt.notes ? allNotes.filter((n) => withTag(n) && inRange(noteDay(n))) : [];
+    // Ordem cronológica (dia; itens "só do mês" no início do mês; depois a hora em que foram anotados).
+    const entries = opt.entries
+      ? store.rows('entries').filter((e) => e.status !== 'migrated' && e.status !== 'scheduled' && withTag(e) && inRange(e.day))
+        .sort((a, b) => a.day.localeCompare(b.day) || (b.month_only - a.month_only) || String(a.created_at).localeCompare(String(b.created_at)))
+      : [];
+    const titles = new Map(allNotes.map((n) => [n.id, n.title]));
+    data = { notes, entries, titles };
     loading = false;
     paint();
   }

@@ -4,7 +4,7 @@ import { extractTags, extractLinks } from './parse.js';
 
 const SAVE_DELAY = 700;
 
-export function createNotes({ sb, h, toast, check, state, render, openTag, openDay, tags: tagIndex }) {
+export function createNotes({ store, h, toast, state, render, openTag, openDay, tags: tagIndex }) {
   let draft = null;      // nota aberta no editor: { id|null, title, body, pinned, created_at, updated_at }
   let timer = null;
   let dirty = false;
@@ -14,33 +14,23 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
   let linked = [];       // tarefas/eventos ligados a esta nota
 
   // ---------- Dados ----------
-  async function loadList() {
-    const res = await sb.from('notes').select('*')
-      .order('pinned', { ascending: false }).order('updated_at', { ascending: false }).limit(1000);
-    check(res);
-    state.notes = res.data;
+  // Tudo vem da cópia local (store.js): funciona offline e sincroniza depois.
+  const byUpdatedDesc = (a, b) => String(b.updated_at).localeCompare(String(a.updated_at));
+
+  function loadList() {
+    state.notes = store.rows('notes').sort((a, b) => (b.pinned - a.pinned) || byUpdatedDesc(a, b));
   }
 
-  async function search(term, tag) {
-    const pattern = `%${term.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
-    const base = () => {
-      let q = sb.from('notes').select('*').order('updated_at', { ascending: false }).limit(100);
-      if (tag) q = q.contains('tags', [tag]);
-      return q;
-    };
-    const queries = term ? [base().ilike('title', pattern), base().ilike('body', pattern)] : [base()];
-    const results = await Promise.all(queries);
-    results.forEach(check);
-    const byId = new Map();
-    for (const r of results) for (const n of r.data) byId.set(n.id, n);
-    return [...byId.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  function search(term, tag) {
+    const f = term.trim().toLowerCase();
+    return store.rows('notes')
+      .filter((n) => (!tag || n.tags.includes(tag)) && (!f || (n.title + '\n' + n.body).toLowerCase().includes(f)))
+      .sort(byUpdatedDesc).slice(0, 100);
   }
 
-  // Cria uma nota direto (usado pela entrada rápida do diário e pelo "mover para Notas").
-  async function quickCreate({ title, body, day = null }) {
-    const res = await sb.from('notes').insert({ title, body, day, tags: extractTags(title + '\n' + body) }).select().single();
-    check(res);
-    return res.data;
+  // Cria uma nota direto (entrada rápida do diário, nota de detalhes de uma tarefa).
+  function quickCreate({ title, body, day = null }) {
+    return store.insert('notes', { title, body, day, tags: extractTags(title + '\n' + body) });
   }
 
   // opts.returnTo: função chamada pelo "‹ voltar" (sem ela, volta para a lista de Notas).
@@ -49,15 +39,12 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
     returnTo = opts.returnTo || null;
     linked = [];
     if (id) {
-      const [res, ent] = await Promise.all([
-        sb.from('notes').select('*').eq('id', id).single(),
-        sb.from('entries').select('id, day, text, kind, status, month_only').eq('note_id', id).order('day'),
-      ]);
-      check(res);
-      draft = res.data;
-      // Antes do 006_task_notes.sql a coluna não existe: segue sem mostrar a tarefa.
+      const row = store.get('notes', id);
+      if (!row) { toast('Nota não encontrada (talvez apagada em outro aparelho).'); return; }
+      draft = { ...row };   // cópia: o editor só grava na cópia local ao salvar
       // Cópias migradas (> <) ficam de fora: mostra só a versão atual de cada tarefa.
-      if (!ent.error) linked = ent.data.filter((e) => e.status !== 'migrated' && e.status !== 'scheduled');
+      linked = store.rows('entries').filter((e) => e.note_id === id && e.status !== 'migrated' && e.status !== 'scheduled')
+        .sort((a, b) => a.day.localeCompare(b.day));
     } else {
       draft = { id: null, title: '', body: '', pinned: false, created_at: null, updated_at: null };
     }
@@ -75,7 +62,7 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
     await flush();
     // Nota que ficou vazia não vale a pena guardar.
     if (draft?.id && !draft.title.trim() && !draft.body.trim()) {
-      await sb.from('notes').delete().eq('id', draft.id);
+      await store.remove('notes', draft.id);
     }
     draft = null; ui = null; linked = [];
     state.noteOpen = false;
@@ -104,22 +91,15 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
   async function persist(target, snap) {
     const row = { ...snap, tags: extractTags(snap.title + '\n' + snap.body) };
     if (!target.id && !snap.title.trim() && !snap.body.trim()) { setStatus(''); return; }
-    setStatus('salvando…');
-    const res = target.id
-      ? await sb.from('notes').update(row).eq('id', target.id).select().single()
-      : await sb.from('notes').insert(row).select().single();
-    if (res.error) {
-      if (target === draft) dirty = true;
-      setStatus('erro ao salvar — tentando de novo');
-      toast('Erro ao salvar: ' + res.error.message);
-      clearTimeout(timer);
-      timer = setTimeout(flush, 3000);
-      throw res.error;
+    if (target.id && store.get('notes', target.id)) {
+      await store.update('notes', target.id, row);
+    } else {
+      const saved = await store.insert('notes', row);
+      target.id = saved.id;
+      target.created_at = saved.created_at;
     }
-    target.id = res.data.id;
-    target.created_at = res.data.created_at;
-    target.updated_at = res.data.updated_at;
-    if (target === draft) { setStatus(dirty ? 'editando…' : 'salvo'); if (ui) renderMeta(); }
+    // Sem conexão: fica salvo neste aparelho e vai para o servidor quando a internet voltar.
+    if (target === draft) { setStatus(dirty ? 'editando…' : store.online ? 'salvo' : 'salvo neste aparelho'); if (ui) renderMeta(); }
   }
 
   const hasPending = () => dirty;
@@ -260,7 +240,7 @@ export function createNotes({ sb, h, toast, check, state, render, openTag, openD
         if (!confirm('Apagar esta nota?')) return;
         clearTimeout(timer); dirty = false;
         await chain;
-        if (draft.id) check(await sb.from('notes').delete().eq('id', draft.id));
+        if (draft.id) await store.remove('notes', draft.id);
         draft = null; ui = null; linked = []; state.noteOpen = false;
         if (goBack) goBack(); else { await loadList(); render(); }
         toast('Nota apagada.');

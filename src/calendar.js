@@ -33,7 +33,7 @@ export function lowerSaxonyHolidays(year) {
   ].map(([day, label]) => ({ day, label }));
 }
 
-export function createCalendar({ sb, check, state }) {
+export function createCalendar({ sb, check, state, toast }) {
   let offWeekdays = [0, 6];
   const days = new Map();   // 'YYYY-MM-DD' → { off, label }
 
@@ -51,25 +51,49 @@ export function createCalendar({ sb, check, state }) {
     return offWeekdays.includes(fromIso(iso).getDay()) ? 'fim de semana' : null;
   }
 
+  // Cópia no aparelho, para "amanhã = próximo dia útil" funcionar offline.
+  const cacheKey = () => `tomenota-cal-${state.session?.user?.id}`;
+  function saveCache() {
+    try { localStorage.setItem(cacheKey(), JSON.stringify({ offWeekdays, days: [...days] })); } catch {}
+  }
+  function loadCache() {
+    try {
+      const c = JSON.parse(localStorage.getItem(cacheKey()) || 'null');
+      if (c) { offWeekdays = c.offWeekdays; days.clear(); for (const [k, v] of c.days) days.set(k, v); }
+    } catch {}
+  }
+  const clearCache = () => { try { localStorage.removeItem(cacheKey()); } catch {} };
+
   async function load() {
+    loadCache();
     const [s, d] = await Promise.all([
       sb.from('user_settings').select('off_weekdays').maybeSingle(),
       sb.from('calendar_days').select('day, off, label').limit(5000),
     ]);
-    // Antes de rodar o 005_workdays.sql as tabelas não existem: segue com o padrão (sáb/dom).
-    if (s.error || d.error) { console.warn('dias úteis: usando padrão', s.error || d.error); return; }
+    // Sem conexão: fica com a cópia do aparelho. Antes do 005_workdays.sql: padrão (sáb/dom).
+    if (s.error || d.error) { console.warn('dias úteis: usando cópia/padrão', s.error || d.error); return; }
     offWeekdays = s.data?.off_weekdays ?? [0, 6];
     days.clear();
     for (const r of d.data) days.set(r.day, { off: r.off, label: r.label });
+    saveCache();
   }
+  // Mudar dias úteis/feriados precisa de internet (o resto do app funciona offline).
+  const needOnline = () => {
+    if (navigator.onLine) return;
+    toast?.('Sem conexão: mudar dias úteis e feriados precisa de internet.');
+    throw { code: 'offline', message: 'offline' };
+  };
 
   async function setWeekdays(list) {
+    needOnline();
     check(await sb.from('user_settings').upsert({ user_id: state.session.user.id, off_weekdays: list, updated_at: new Date().toISOString() }));
     offWeekdays = list;
+    saveCache();
   }
 
   // Marca/desmarca um dia. Volta ao padrão da semana quando a exceção coincide com ele.
   async function setDay(iso, off, label = '') {
+    needOnline();
     const weekdayOff = offWeekdays.includes(fromIso(iso).getDay());
     if (off === weekdayOff && !label) {
       check(await sb.from('calendar_days').delete().eq('day', iso));
@@ -78,12 +102,15 @@ export function createCalendar({ sb, check, state }) {
       check(await sb.from('calendar_days').upsert({ user_id: state.session.user.id, day: iso, off, label }));
       days.set(iso, { off, label });
     }
+    saveCache();
   }
 
   async function addHolidays(list) {
+    needOnline();
     const rows = list.filter((x) => !days.has(x.day)).map((x) => ({ user_id: state.session.user.id, day: x.day, off: true, label: x.label }));
     if (rows.length) check(await sb.from('calendar_days').upsert(rows));
     for (const r of rows) days.set(r.day, { off: true, label: r.label });
+    saveCache();
     return rows.length;
   }
 
@@ -93,5 +120,5 @@ export function createCalendar({ sb, check, state }) {
     return [...days].filter(([d]) => d >= t).sort(([a], [b]) => a.localeCompare(b)).map(([day, x]) => ({ day, ...x }));
   }
 
-  return { load, isOff, reason, setWeekdays, setDay, addHolidays, upcoming, get offWeekdays() { return offWeekdays; } };
+  return { load, clearCache, isOff, reason, setWeekdays, setDay, addHolidays, upcoming, get offWeekdays() { return offWeekdays; } };
 }

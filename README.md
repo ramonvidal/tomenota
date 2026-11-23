@@ -29,6 +29,15 @@ No menu **⋯** de uma tarefa: **Começar agora**. O bullet vira `/` e aparece n
 ### Nota de detalhes de uma tarefa
 No menu **⋯** de uma tarefa ou evento: **Criar nota de detalhes** (nasce com o texto da tarefa como título e as mesmas tags) ou **Ligar a uma nota existente…** (com busca). A linha ganha um atalho **📄 nota** que abre a nota; o **‹ voltar** do editor retorna ao dia. Dentro da nota aparece a tarefa ligada. Ao migrar (`>`) ou agendar (`<`), a nota acompanha a tarefa. Apagar a tarefa não apaga a nota; apagar a nota só desfaz a ligação.
 
+### App no Android e offline
+**Instalar:** abra o site no **Chrome do Android** → menu **⋮** → **Instalar app** (ou "Adicionar à tela inicial"). Ele ganha ícone próprio, abre em tela cheia e se atualiza sozinho.
+- **Segurar o ícone:** atalhos **Nova tarefa** e **Nova nota**.
+- **Compartilhar → Tome Nota!** em qualquer app (navegador, YouTube…): o link/texto vira uma nota.
+- **Offline:** o app abre e você lê e escreve normalmente sem internet. Tudo fica salvo no aparelho e é enviado quando a conexão volta (indicador "offline · N pendentes" no topo).
+- **Conflito:** se a mesma nota for editada offline aqui e, nesse meio tempo, em outro aparelho, a versão do servidor fica e a deste aparelho vira uma cópia "(conflito)". Nada se perde. Tarefas: vale a última alteração.
+- Precisam de internet: conta (senha, 2FA), mudar dias úteis/feriados.
+- **Sair** apaga a cópia local do aparelho (avisa se ainda houver alterações não enviadas).
+
 ### Exportar (para guardar ou usar com o Claude)
 **Índice → Exportar ↓**: escolha o conteúdo (notas e/ou tarefas e eventos), uma tag e o período (tudo, 7 dias, 30 dias, este mês, este ano ou personalizado). **Baixar .md** gera um arquivo Markdown; **Copiar** põe o mesmo texto na área de transferência, pronto para colar numa conversa com o Claude ou subir num Projeto no claude.ai. Tarefas migradas (`>`) e agendadas (`<`) ficam de fora para não duplicar.
 
@@ -49,7 +58,7 @@ No computador ficam no topo; no celular, embaixo, com ícones.
 
 ## Stack (tudo grátis)
 
-- **Frontend:** Vite + JS puro (sem framework). Hospedado no **Cloudflare Pages** (grátis, funciona com repo privado).
+- **Frontend:** Vite + JS puro (sem framework). PWA instalável, com cópia local (IndexedDB) e fila de sincronização para funcionar offline (`src/store.js`, `public/sw.js`). Hospedado no **Cloudflare Pages** (grátis, funciona com repo privado).
 - **Backend:** **Supabase** (Postgres + Auth). O plano gratuito é suficiente para uso pessoal.
 - **Segurança:**
   - Login com e-mail + senha e **2FA opcional** (código de app autenticador), na página **conta**.

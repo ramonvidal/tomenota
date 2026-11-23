@@ -6,6 +6,7 @@ import { createTags } from './tags.js';
 import { createMenu } from './menu.js';
 import { createExport } from './export.js';
 import { createNotes } from './notes.js';
+import { createStore } from './store.js';
 
 // Aceita também a URL copiada com /rest/v1/ ou / no final: usa só https://xxxx.supabase.co
 const SB_URL = (() => {
@@ -149,38 +150,82 @@ function check({ error }) {
   if (error) { toast(friendlyError(error)); throw error; }
 }
 
-const tags = createTags({ sb, h });
+// Cópia local das tarefas/notas: o app funciona offline e sincroniza quando a conexão volta.
+let pendingRefresh = false;
+const store = createStore({
+  sb, toast, friendlyError,
+  onChange: (info) => {
+    tags.refresh();
+    if (!info?.fromServer || state.stage !== 'app') return;
+    // Chegou algo do servidor: atualiza a tela, mas sem atrapalhar quem está editando.
+    if (state.noteOpen || state.editing || document.querySelector('.menu')) { pendingRefresh = true; return; }
+    load();
+  },
+  onStatus: (st) => { state.sync = st; paintSync(); },
+});
+const tags = createTags({ store, h });
 const menu = createMenu(h);
-const exporter = createExport({ sb, h, check, toast, tags });
-const cal = createCalendar({ sb, check, state });
+const exporter = createExport({ store, h, toast, tags });
+const cal = createCalendar({ sb, check, state, toast });
 
 const notes = createNotes({
-  sb, h, toast, check, state, tags,
+  store, h, toast, state, tags,
   render: () => render(),
   openTag: (t) => { state.tag = t; state.query = ''; go('search'); },
   openDay: (day) => go('day', day),
 });
 
-// ---------- Dados ----------
+// ---------- Indicador de sincronização (só aparece quando há algo a dizer) ----------
+function syncBadge() {
+  const st = state.sync;
+  let text = '', cls = '';
+  if (st?.opened) {
+    if (!st.online) { text = st.pending ? `offline · ${st.pending} pendente${st.pending > 1 ? 's' : ''}` : 'offline'; cls = 'off'; }
+    else if (st.syncing || st.pending) text = 'sincronizando…';
+  }
+  return h('span', {
+    class: 'sync ' + cls, role: 'status',
+    title: st && !st.online ? 'Sem conexão. Tudo fica salvo neste aparelho e sincroniza quando a internet voltar.' : '',
+  }, text);
+}
+function paintSync() {
+  const el = document.querySelector('.sync');
+  if (el) el.replaceWith(syncBadge());
+}
+
+// Sair: apaga a cópia local deste aparelho (avisa se ainda há alterações sem enviar).
+async function signOut(scope = 'local') {
+  if (store.pending && !confirm(`Há ${store.pending} alteração(ões) ainda não enviada(s) (sem conexão). Sair agora vai descartá-las. Sair mesmo assim?`)) return;
+  if (scope === 'global' && !confirm('Sair de todos os dispositivos, inclusive este?')) return;
+  await store.wipe();
+  cal.clearCache();
+  await sb.auth.signOut({ scope });
+}
+
+// ---------- Dados (sempre da cópia local; ver store.js) ----------
 const monthLabel = (iso) => fromIso(iso).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 const monthShort = (iso) => fromIso(iso).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '');
 const isFutureMonth = (iso) => firstOfMonth(iso) > firstOfMonth(isoDay());
+const byCreated = (a, b) => String(a.created_at).localeCompare(String(b.created_at));
+const byUpdatedDesc = (a, b) => String(b.updated_at).localeCompare(String(a.updated_at));
+const entries = () => store.rows('entries');
+const allNotes = () => store.rows('notes');
+const textMatch = (text, term) => String(text).toLowerCase().includes(term.toLowerCase());
 
 // Tudo que está à frente: dias depois de hoje + itens "só do mês" do mês atual em diante.
-async function fetchFuture() {
+function fetchFuture() {
   const t = isoDay();
-  const [a, b] = await Promise.all([
-    sb.from('entries').select('*').gt('day', t).order('day').order('created_at').limit(1000),
-    sb.from('entries').select('*').eq('month_only', true).gte('day', firstOfMonth(t)).lte('day', t).order('created_at'),
-  ]);
-  check(a); check(b);
-  const byId = new Map([...b.data, ...a.data].map((e) => [e.id, e]));
-  return [...byId.values()].filter((e) => e.status !== 'migrated' && e.status !== 'scheduled')
-    .sort((x, y) => x.day.localeCompare(y.day) || (y.month_only - x.month_only) || x.created_at.localeCompare(y.created_at));
+  return entries()
+    .filter((e) => (e.day > t || (e.month_only && e.day >= firstOfMonth(t) && e.day <= t)) && e.status !== 'migrated' && e.status !== 'scheduled')
+    .sort((x, y) => x.day.localeCompare(y.day) || (y.month_only - x.month_only) || byCreated(x, y));
 }
 
-// Cada carga tem um número; se outra começou depois, a resposta antiga é descartada
-// (evita que uma resposta lenta apague o resultado mais novo, ex.: digitar logo ao abrir o Índice).
+// Tarefas abertas de dias (ou meses) anteriores.
+function overdueTasks() {
+  const t = isoDay();
+  return entries().filter((e) => e.kind === 'task' && e.status === 'open' && (e.month_only ? e.day < firstOfMonth(t) : e.day < t));
+}
+
 let loadSeq = 0;
 
 async function load() {
@@ -188,80 +233,50 @@ async function load() {
   const seq = ++loadSeq;
   const stale = () => seq !== loadSeq;
   if (state.view === 'account') {
-    const { data, error } = await sb.auth.mfa.listFactors();
+    const { data, error } = store.online ? await sb.auth.mfa.listFactors() : { data: null, error: { message: 'Sem conexão: a página conta precisa de internet.' } };
     if (stale()) return;
     if (error) toast(error.message);
     state.factors = data || { all: [], totp: [] };
     return render();
   }
-  if (state.view === 'export') return render();   // a tela de exportar busca os próprios dados
+  if (state.view === 'export') return render();
   if (state.view === 'notes') {
-    if (!state.noteOpen) await notes.loadList();
-    if (stale()) return;
+    if (!state.noteOpen) notes.loadList();
     return render();
   }
-  state.busy = true;
+  state.busy = false;
   state.dayNotes = [];
   state.overdue = 0;
 
   if (state.view === 'day') {
-    const [res, nres] = await Promise.all([
-      sb.from('entries').select('*').eq('day', state.day).eq('month_only', false).order('created_at'),
-      sb.from('notes').select('*').eq('day', state.day).order('created_at'),
-    ]);
-    check(res); check(nres);
-    if (stale()) return;
-    state.entries = res.data;
-    const linkedIds = new Set(res.data.map((e) => e.note_id).filter(Boolean));
-    state.dayNotes = nres.data.filter((n) => !linkedIds.has(n.id));
-    if (state.day === isoDay()) {
-      const [o1, o2] = await Promise.all([
-        sb.from('entries').select('id', { count: 'exact', head: true })
-          .eq('kind', 'task').eq('status', 'open').eq('month_only', false).lt('day', state.day),
-        sb.from('entries').select('id', { count: 'exact', head: true })
-          .eq('kind', 'task').eq('status', 'open').eq('month_only', true).lt('day', firstOfMonth(state.day)),
-      ]);
-      if (stale()) return;
-      state.overdue = (o1.count || 0) + (o2.count || 0);
-    }
+    state.entries = entries().filter((e) => e.day === state.day && !e.month_only).sort(byCreated);
+    const linkedIds = new Set(state.entries.map((e) => e.note_id).filter(Boolean));
+    state.dayNotes = allNotes().filter((n) => n.day === state.day && !linkedIds.has(n.id)).sort(byCreated);
+    if (state.day === isoDay()) state.overdue = overdueTasks().length;
   } else if (state.view === 'future') {
-    const future = await fetchFuture();
-    if (stale()) return;
-    state.entries = future;
+    state.entries = fetchFuture();
   } else {
-    // Índice: busca + coleções (tags) + notas fixadas + resumo do futuro.
+    // Índice: busca + pendentes + coleções (tags) + notas fixadas + resumo do futuro.
     const term = state.query.trim();
     if (!term && !state.tag) {
       const t = isoDay();
-      const [pinned, future, pending] = await Promise.all([
-        sb.from('notes').select('*').eq('pinned', true).order('updated_at', { ascending: false }).limit(50),
-        fetchFuture(),
-        sb.from('entries').select('*').eq('kind', 'task').in('status', ['open', 'doing']).lte('day', t)
-          .order('day').order('month_only', { ascending: false }).order('priority', { ascending: false }).order('created_at').limit(500),
-      ]);
-      check(pinned); check(pending);
-      if (stale()) return;
-      state.pinnedNotes = pinned.data;
+      state.pinnedNotes = allNotes().filter((n) => n.pinned).sort(byUpdatedDesc);
       // Pendentes = abertas até hoje (itens "só do mês" contam a partir do mês deles). O resto está no Futuro.
-      state.pending = pending.data.filter((e) => !e.month_only || e.day <= firstOfMonth(t))
-        // Mais antigas primeiro (no dia, itens "só do mês" antes; importantes antes).
-        .sort((a, b) => a.day.localeCompare(b.day) || (b.month_only - a.month_only) || (b.priority - a.priority) || String(a.created_at).localeCompare(String(b.created_at)));
+      state.pending = entries()
+        .filter((e) => e.kind === 'task' && (e.status === 'open' || e.status === 'doing') && (e.month_only ? e.day <= firstOfMonth(t) : e.day <= t))
+        .sort((a, b) => a.day.localeCompare(b.day) || (b.month_only - a.month_only) || (b.priority - a.priority) || byCreated(a, b));
       const months = new Map();
-      for (const e of future) { const m = firstOfMonth(e.day); months.set(m, (months.get(m) || 0) + 1); }
+      for (const e of fetchFuture()) { const m = firstOfMonth(e.day); months.set(m, (months.get(m) || 0) + 1); }
       state.futureSummary = [...months];
       state.entries = []; state.searchNotes = [];
     } else {
-      let q = sb.from('entries').select('*');
-      if (term) q = q.ilike('text', `%${term.replace(/[%_\\]/g, (c) => '\\' + c)}%`);
-      if (state.tag) q = q.contains('tags', [state.tag]);
-      const [res, found] = await Promise.all([q.order('day', { ascending: false }).limit(200), notes.search(term, state.tag)]);
-      check(res);
-      if (stale()) return;
-      state.entries = res.data;
-      state.searchNotes = found;
+      state.entries = entries()
+        .filter((e) => (!term || textMatch(e.text, term)) && (!state.tag || e.tags.includes(state.tag)))
+        .sort((a, b) => b.day.localeCompare(a.day)).slice(0, 200);
+      state.searchNotes = notes.search(term, state.tag);
     }
   }
-  state.busy = false;
+  if (stale()) return;
   render();
 }
 
@@ -272,7 +287,6 @@ async function createNote(text, entryTags, day) {
   const tagLine = entryTags.map((t) => '#' + t).join(' ');
   const note = await notes.quickCreate({ title, body: [body, tagLine].filter(Boolean).join('\n\n'), day });
   toast(`Nota salva em Notas: ${title}`, { label: 'abrir', fn: () => notes.open(note.id) });
-  tags.refresh();
   return note;
 }
 
@@ -290,10 +304,9 @@ async function add(raw) {
     await createNote(e.text, e.tags, e.month_only ? null : e.day);
     return load();
   }
-  check(await sb.from('entries').insert(e));
+  await store.insert('entries', e);
   if (e.month_only) toast(`Agendado para ${monthLabel(e.day)} (Futuro)`);
   else if (state.view === 'day' && e.day !== state.day) toast(`Anotado para ${fmtShort(e.day)}`);
-  if (e.tags.length) tags.refresh();
   await load();
 }
 
@@ -302,45 +315,39 @@ async function changeKind(e, kind) {
   if (kind === e.kind) return;
   if (kind === 'note') {
     await createNote(e.text, e.tags, e.month_only ? null : e.day);
-    check(await sb.from('entries').delete().eq('id', e.id));
+    await store.remove('entries', e.id);
     return load();
   }
   await update(e.id, { kind });
 }
 
 async function update(id, patch) {
-  check(await sb.from('entries').update(patch).eq('id', id));
+  await store.update('entries', id, patch);
   await load();
 }
 
 async function remove(id) {
-  check(await sb.from('entries').delete().eq('id', id));
+  await store.remove('entries', id);
   await load();
 }
 
 // Migração estilo bullet journal: uma cópia vai para o destino e o original fica marcado:
 //   ">" migrado (outro dia, mesmo mês ou passado)   "<" agendado (mês futuro = Future Log)
-async function migrate(entries, target, monthOnly = false) {
-  if (!entries.length) return;
-  check(await sb.from('entries').insert(entries.map((e) => ({
+async function migrate(list, target, monthOnly = false) {
+  if (!list.length) return;
+  await store.insert('entries', list.map((e) => ({
     kind: e.kind, text: e.text, tags: e.tags, priority: e.priority, day: target, month_only: monthOnly,
     ...(e.note_id ? { note_id: e.note_id } : {}),   // a nota de detalhes acompanha a tarefa
-  }))));
+  })));
   const status = isFutureMonth(target) ? 'scheduled' : 'migrated';
-  check(await sb.from('entries').update({ status }).in('id', entries.map((e) => e.id)));
+  await store.update('entries', list.map((e) => e.id), { status });
   if (status === 'scheduled') toast(`Agendado para ${monthOnly ? monthLabel(target) : fmtShort(target)} (Futuro)`);
   await load();
 }
 
 async function migrateOverdue() {
-  const t = isoDay();
-  const [a, b] = await Promise.all([
-    sb.from('entries').select('*').eq('kind', 'task').eq('status', 'open').eq('month_only', false).lt('day', t),
-    sb.from('entries').select('*').eq('kind', 'task').eq('status', 'open').eq('month_only', true).lt('day', firstOfMonth(t)),
-  ]);
-  check(a); check(b);
-  const all = [...a.data, ...b.data];
-  await migrate(all, t);
+  const all = overdueTasks();
+  await migrate(all, isoDay());
   toast(`${all.length} tarefa(s) migrada(s) para hoje`);
 }
 
@@ -353,31 +360,24 @@ const KINDS = [
 
 // ---------- Fazendo agora (bullet "/") ----------
 // Uma tarefa por vez: começar outra pausa a atual (o banco também garante isso).
-async function refreshDoing() {
-  const res = await sb.from('entries').select('*').eq('status', 'doing').limit(1);
-  const next = res.error ? null : res.data[0] || null;
+function refreshDoing() {
+  const next = entries().find((e) => e.status === 'doing') || null;
   if ((next?.id || null) !== (state.doing?.id || null) || next?.text !== state.doing?.text) {
     state.doing = next;
     paintNowBar();
   }
 }
 
-function doingError(err) {
-  toast(/started_at|entries_status_check|doing/.test(err.message)
-    ? 'Rode o supabase/007_doing.sql no Supabase para usar "fazendo agora".' : err.message);
-}
-
 async function startDoing(e) {
-  const r1 = await sb.from('entries').update({ status: 'open', started_at: null }).eq('status', 'doing');
-  if (r1.error) return doingError(r1.error);
-  const r2 = await sb.from('entries').update({ status: 'doing', started_at: new Date().toISOString() }).eq('id', e.id);
-  if (r2.error) return doingError(r2.error);
+  // Uma por vez: pausa a atual primeiro (o banco também garante isso).
+  const current = entries().filter((x) => x.status === 'doing' && x.id !== e.id).map((x) => x.id);
+  if (current.length) await store.update('entries', current, { status: 'open', started_at: null });
+  await store.update('entries', e.id, { status: 'doing', started_at: new Date().toISOString() });
   await load();
 }
 
 async function stopDoing(e, done) {
-  check(await sb.from('entries').update({ status: done ? 'done' : 'open', started_at: null }).eq('id', e.id));
-  if (state.doing?.id === e.id) { state.doing = null; paintNowBar(); }
+  await store.update('entries', e.id, { status: done ? 'done' : 'open', started_at: null });
   await load();
 }
 
@@ -423,12 +423,7 @@ function openLinkedNote(noteId, extra = {}) {
 }
 
 async function linkNote(e, noteId) {
-  const res = await sb.from('entries').update({ note_id: noteId }).eq('id', e.id);
-  if (res.error) {
-    // Coluna ainda não existe: falta rodar o 006_task_notes.sql.
-    toast(/note_id/.test(res.error.message) ? 'Rode o supabase/006_task_notes.sql no Supabase para ligar notas a tarefas.' : res.error.message);
-    throw res.error;
-  }
+  await store.update('entries', e.id, { note_id: noteId });
   e.note_id = noteId;
 }
 
@@ -436,8 +431,7 @@ async function createDetailNote(e) {
   // Primeira linha vazia (o cursor fica nela); as tags da tarefa vão no fim.
   const tagLine = e.tags.map((t) => '#' + t).join(' ');
   const note = await notes.quickCreate({ title: e.text, body: tagLine ? '\n\n' + tagLine : '' });
-  try { await linkNote(e, note.id); } catch { await sb.from('notes').delete().eq('id', note.id); return; }
-  tags.refresh();
+  await linkNote(e, note.id);
   openLinkedNote(note.id, { caretStart: true });
 }
 
@@ -454,11 +448,8 @@ function pickNote(api, e, back) {
   };
   const search = h('input', { type: 'search', class: 'date-pick', placeholder: 'Buscar nota…', oninput: (ev) => show(ev.target.value) });
   api.set(menu.item('‹ voltar', () => api.set(back(api)), { keepOpen: true }), h('div', { class: 'menu-date' }, search), results);
+  all = allNotes().sort(byUpdatedDesc);
   show('');
-  sb.from('notes').select('id, title, body, updated_at').order('updated_at', { ascending: false }).limit(500).then((res) => {
-    if (res.error) return toast(res.error.message);
-    all = res.data; show(search.value);
-  });
 }
 
 // Menu "⋯" de uma tarefa/evento.
@@ -604,12 +595,13 @@ function noteDayRow(n) {
     ),
     moreButton((anchor) => menu.open(anchor, () => [
       menu.item('Abrir nota', () => notes.open(n.id)),
-      menu.item('Apagar', async () => { if (!confirm('Apagar esta nota?')) return; check(await sb.from('notes').delete().eq('id', n.id)); load(); }, { danger: true }),
+      menu.item('Apagar', async () => { if (!confirm('Apagar esta nota?')) return; await store.remove('notes', n.id); load(); }, { danger: true }),
     ])),
   );
 }
 
 async function go(view, day) {
+  pendingRefresh = false;
   if (state.noteOpen) { await notes.close(); tags.refresh(); }
   const changed = view !== state.view || (day && day !== state.day);
   state.view = view;
@@ -698,7 +690,7 @@ function renderMfa() {
     },
   }, code, btn);
   app.replaceChildren(authCard('Verificação em 2 etapas', msg, form,
-    h('button', { class: 'link', onclick: () => sb.auth.signOut({ scope: 'local' }) }, 'Cancelar e sair')));
+    h('button', { class: 'link', onclick: () => signOut() }, 'Cancelar e sair')));
   code.focus();
 }
 
@@ -739,10 +731,46 @@ async function refreshAuth() {
   if (stage === state.stage) return;
   state.stage = stage;
   if (stage === 'app') {
-    await cal.load();
+    await store.open(state.session.user.id);
+    cal.load().then(() => { if (state.view === 'day' || state.view === 'account') render(); });
+    tags.refresh();
+    if (!store.hasData() && store.online) {
+      // Primeira vez neste aparelho: baixa tudo antes de mostrar.
+      app.replaceChildren(h('p', { class: 'loading' }, 'Baixando suas notas para este aparelho…'));
+      await store.pull();
+    } else {
+      store.pull();   // em segundo plano
+    }
     load();
-    tags.refresh().then(() => { if (state.view === 'search' && !state.query.trim() && !state.tag) render(); });
+    handleLaunch();
   } else render();
+}
+
+// ---------- Abrir pelo atalho do ícone ou por "compartilhar" de outro app (Android) ----------
+function handleLaunch() {
+  const q = new URLSearchParams(location.search);
+  if (![...q.keys()].length) return;
+  history.replaceState(null, '', location.pathname);   // não repete ao recarregar
+  const novo = q.get('novo');
+  if (novo === 'nota') return notes.open(null);
+  if (novo === 'tarefa') {
+    state.kind = 'task';
+    go('day', isoDay()).then(() => setTimeout(() => document.getElementById('quick')?.focus(), 50));
+    return;
+  }
+  const title = (q.get('title') || '').trim(), text = (q.get('text') || '').trim(), url = (q.get('url') || '').trim();
+  if (title || text || url) shareToNote({ title, text, url });
+}
+
+// Compartilhado de outro app vira uma nota (o Android costuma mandar o link dentro de "text").
+async function shareToNote({ title, text, url }) {
+  let host = '';
+  try { host = url ? new URL(url).hostname.replace(/^www\./, '') : ''; } catch {}
+  const name = title || text.split('\n')[0].slice(0, 120) || host || 'Compartilhado';
+  const body = [text !== name ? text : '', url && !text.includes(url) ? url : ''].filter(Boolean).join('\n\n');
+  const note = await notes.quickCreate({ title: name, body });
+  toast('Salvo em Notas.');
+  notes.open(note.id);
 }
 
 // ---------- Conta ----------
@@ -861,8 +889,8 @@ function renderAccount(main) {
 
   main.append(h('section', { class: 'card' }, h('h3', {}, 'Sessões'),
     h('p', { class: 'muted' }, 'Perdeu o celular ou entrou em um computador de outra pessoa? Saia de todos os dispositivos.'),
-    h('button', { class: 'secondary', onclick: () => sb.auth.signOut({ scope: 'local' }) }, 'Sair deste dispositivo'),
-    h('button', { class: 'secondary', onclick: () => confirm('Sair de todos os dispositivos, inclusive este?') && sb.auth.signOut({ scope: 'global' }) }, 'Sair de todos os dispositivos')));
+    h('button', { class: 'secondary', onclick: () => signOut('local') }, 'Sair deste dispositivo'),
+    h('button', { class: 'secondary', onclick: () => signOut('global') }, 'Sair de todos os dispositivos')));
 }
 
 // Entrada rápida + botões de tipo (usada no Dia e no Futuro).
@@ -1015,7 +1043,7 @@ function render() {
     }, svgIcon(icon), h('span', {}, label))));
   const account = h('div', { class: 'account' },
     h('button', { class: 'tab' + (state.view === 'account' ? ' on' : ''), title: state.session.user.email, onclick: () => go('account') }, 'conta'),
-    h('button', { class: 'tab nav-signout', title: 'Sair deste dispositivo', onclick: () => sb.auth.signOut({ scope: 'local' }) }, 'sair'));
+    h('button', { class: 'tab nav-signout', title: 'Sair deste dispositivo', onclick: () => signOut() }, 'sair'));
 
   const main = h('main', {});
 
@@ -1124,7 +1152,17 @@ function render() {
   if (state.view === 'account') renderAccount(main);
 
   main.prepend(nowBar());
-  app.replaceChildren(h('header', {}, h('span', { class: 'logo' }, 'Tome Nota!'), nav, account), main);
+  // Preserva o que está sendo digitado na entrada rápida quando a tela é redesenhada.
+  const prev = document.getElementById('quick');
+  const keep = prev && prev.value && { value: prev.value, focused: document.activeElement === prev, at: prev.selectionStart, view: state.view };
+  app.replaceChildren(h('header', {}, h('span', { class: 'logo' }, 'Tome Nota!'), syncBadge(), nav, account), main);
+  if (keep) {
+    const next = document.getElementById('quick');
+    if (next && !next.value && next.type !== 'search') {
+      next.value = keep.value;
+      if (keep.focused) { next.focus(); next.setSelectionRange(keep.at, keep.at); }
+    }
+  }
 }
 
 // ---------- Atalhos ----------
@@ -1148,11 +1186,27 @@ window.addEventListener('beforeunload', (ev) => {
 });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') notes.flush(); });
 
+// ---------- App instalável / offline (service worker) ----------
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', async () => {
+    try {
+      await navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js');
+      const reg = await navigator.serviceWorker.ready;
+      // Na primeira visita o service worker ainda não existia: pede para guardar o que já foi carregado.
+      const urls = [new URL(import.meta.env.BASE_URL, location.origin).href, ...performance.getEntriesByType('resource').map((r) => r.name)];
+      reg.active?.postMessage({ type: 'cache', urls });
+    } catch (err) { console.warn('service worker:', err); }
+  });
+}
+
 // ---------- Boot ----------
 // Não chamar o Supabase direto dentro do callback (pode travar): agenda com setTimeout.
 sb.auth.onAuthStateChange((event, session) => {
   state.session = session;
   if (event === 'PASSWORD_RECOVERY') state.recovery = true;
-  if (event === 'SIGNED_OUT') { state.recovery = false; state.view = 'day'; state.enroll = null; state.noteOpen = false; state.notes = null; }
+  if (event === 'SIGNED_OUT') {
+    state.recovery = false; state.view = 'day'; state.enroll = null; state.noteOpen = false; state.notes = null; state.doing = null;
+    store.wipe();   // a cópia local não fica no aparelho depois de sair
+  }
   setTimeout(refreshAuth);
 });

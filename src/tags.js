@@ -3,16 +3,13 @@ import { normalizeTag } from './parse.js';
 
 const TOKEN_RE = /(^|\s)#([\p{L}\p{N}_-]*)$/u;
 
-export function createTags({ sb, h }) {
+export function createTags({ store, h }) {
   let counts = new Map();
 
-  async function refresh() {
-    const [a, b] = await Promise.all([
-      sb.from('entries').select('tags').neq('tags', '{}').limit(10000),
-      sb.from('notes').select('tags').neq('tags', '{}').limit(10000),
-    ]);
+  // Conta as tags da cópia local (tarefas/eventos + notas).
+  function refresh() {
     const m = new Map();
-    for (const r of [...(a.data || []), ...(b.data || [])]) for (const t of r.tags) m.set(t, (m.get(t) || 0) + 1);
+    for (const r of [...store.rows('entries'), ...store.rows('notes')]) for (const t of r.tags || []) m.set(t, (m.get(t) || 0) + 1);
     counts = m;
   }
 
