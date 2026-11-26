@@ -609,6 +609,10 @@ function noteDayRow(n) {
 
 async function go(view, day) {
   pendingRefresh = false;
+  if (isoDay() !== appToday) {   // virou o dia enquanto uma nota estava aberta
+    if (state.view === 'day' && state.day === appToday && (!day || day === appToday)) day = isoDay();
+    appToday = isoDay();
+  }
   if (state.noteOpen) { await notes.close(); tags.refresh(); }
   const changed = view !== state.view || (day && day !== state.day);
   state.view = view;
@@ -1171,6 +1175,24 @@ function render() {
     }
   }
 }
+
+// ---------- Virada do dia ----------
+// O app pode ficar aberto por dias (no celular, instalado). Quando passa a meia-noite,
+// quem estava vendo "hoje" passa a ver o novo hoje; o resto da tela (aviso de atrasadas,
+// faixa da semana, Pendentes) é recalculado.
+let appToday = isoDay();
+function checkNewDay() {
+  if (state.stage !== 'app' || isoDay() === appToday) return;
+  if (state.editing || document.querySelector('.menu')) return;   // não atrapalha: tenta de novo em seguida
+  const old = appToday;
+  appToday = isoDay();
+  if (state.view === 'day' && state.day === old) state.day = appToday;
+  if (state.noteOpen) { pendingRefresh = true; return; }
+  load();
+}
+setInterval(checkNewDay, 30000);
+window.addEventListener('focus', checkNewDay);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkNewDay(); });
 
 // ---------- Atalhos ----------
 document.addEventListener('keydown', (ev) => {
